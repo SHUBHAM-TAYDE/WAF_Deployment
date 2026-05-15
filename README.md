@@ -1,4 +1,4 @@
-# Enterprise WAF Framework
+# WAF Framework
 
 ## NGINX + ModSecurity + OWASP CRS
 
@@ -19,7 +19,7 @@ This project provides an enterprise-grade automated WAF deployment framework wit
 * Audit log validation
 * Rollback support
 * Backup support
-* Enterprise logging
+* logging
 
 ---
 
@@ -59,7 +59,6 @@ This project provides an enterprise-grade automated WAF deployment framework wit
 
 # Features
 
-* Enterprise-grade WAF deployment
 * Interactive step-by-step installation
 * Automatic NGINX installation
 * ModSecurity v3 compilation and deployment
@@ -132,7 +131,7 @@ Provides protection against:
 # Project Structure
 
 ```text
-enterprise-waf-framework/
+waf-framework/
 │
 ├── waf_install.sh
 ├── README.md
@@ -176,13 +175,13 @@ sudo
 ## 1. Clone Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/enterprise-waf-framework.git
+git clone https://github.com/Danger-cypher/WAF_Deployment.git
 ```
 
 ## 2. Move Into Project
 
 ```bash
-cd enterprise-waf-framework
+cd WAF_Deployment
 ```
 
 ## 3. Make Script Executable
@@ -387,100 +386,3 @@ Backups stored in:
 ```text
 ./backups/
 ```
-
----
-
-# GitHub Push Guide
-
-## Initialize Git
-
-```bash
-git init
-```
-
-## Add Files
-
-```bash
-git add .
-```
-
-## Commit Files
-
-```bash
-git commit -m "Initial Enterprise WAF Framework"
-```
-
-## Add GitHub Remote
-
-```bash
-git remote add origin https://github.com/YOUR_USERNAME/enterprise-waf-framework.git
-```
-
-## Push Repository
-
-```bash
-git push -u origin main
-```
-
----
-
-# Recommended GitHub Files
-
-Create these files:
-
-```text
-README.md
-LICENSE
-.gitignore
-CHANGELOG.md
-```
-
----
-
-# Recommended .gitignore
-
-```text
-logs/
-backups/
-temp/
-*.log
-*.tar.gz
-```
-
----
-
-# Future Improvements
-
-* HAProxy integration
-* Coraza support
-* SIEM integration
-* Docker deployment
-* Kubernetes support
-* Grafana dashboards
-* Fail2Ban integration
-* Centralized logging
-* CI/CD automation
-
----
-
-# Disclaimer
-
-This project is intended for:
-
-* Security testing
-* Defensive security
-* Enterprise infrastructure protection
-* Educational and research purposes
-
-Always test configurations in a lab environment before production deployment.
-
----
-
-# Author
-
-Enterprise WAF Deployment Framework
-Built using:
-
-* NGINX
-* ModSecurity
-* OWASP CRS
