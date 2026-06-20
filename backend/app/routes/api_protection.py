@@ -1,0 +1,125 @@
+from fastapi import APIRouter, Depends
+from typing import List, Dict, Any
+from app.services import db_service
+from app.services.auth import require_any_role, TokenData
+from app.services.api_discovery import run_api_discovery
+
+router = APIRouter()
+
+
+def calculate_endpoint_score(ep: Dict[str, Any]) -> Dict[str, Any]:
+    """Computes a security and performance score (0-100) and grade (A-F) for an endpoint."""
+    score = 100
+    hit_count = ep.get("hit_count", 0)
+
+    # 1. Latency deductions
+    avg_latency = ep.get("avg_response_time_ms", 0.0)
+    if avg_latency > 2000.0:
+        score -= 30
+    elif avg_latency > 500.0:
+        score -= 15
+    elif avg_latency > 200.0:
+        score -= 5
+
+    # 2. Error ratio deductions
+    if hit_count > 0:
+        error_ratio = ep.get("error_count", 0) / hit_count
+        score -= int(error_ratio * 40)
+
+    # 3. Threat ratio deductions (malicious and suspicious)
+    if hit_count > 0:
+        threat_ratio = (
+            ep.get("malicious_count", 0) + ep.get("suspicious_count", 0)
+        ) / hit_count
+        score -= int(threat_ratio * 50)
+
+    # 4. HTTPS deduction
+    if not ep.get("has_https", 1):
+        score -= 20
+
+    # 5. Versioning deduction
+    if not ep.get("has_versioning", 0):
+        score -= 10
+
+    # 6. Compression deduction
+    encoding = ep.get("content_encoding", "")
+    if not encoding or encoding == "none":
+        score -= 5
+
+    # Clamp score
+    score = max(0, min(100, score))
+
+    # Assign Grade
+    if score >= 90:
+        grade = "A"
+    elif score >= 80:
+        grade = "B"
+    elif score >= 70:
+        grade = "C"
+    elif score >= 60:
+        grade = "D"
+    else:
+        grade = "F"
+
+    ep_copy = dict(ep)
+    ep_copy["score"] = score
+    ep_copy["grade"] = grade
+    return ep_copy
+
+
+@router.get("/api-protection/endpoints", response_model=List[Dict[str, Any]])
+def get_discovered_endpoints(current_user: TokenData = Depends(require_any_role)):
+    """Runs a discovery pass on the access log, and returns all discovered endpoints with scores."""
+    run_api_discovery()  # Scan for any new lines in access.log
+    endpoints = db_service.get_all_discovered_endpoints()
+    return [calculate_endpoint_score(ep) for ep in endpoints]
+
+
+@router.get("/api-protection/recently-discovered", response_model=List[Dict[str, Any]])
+def get_recently_discovered(current_user: TokenData = Depends(require_any_role)):
+    """Returns endpoints discovered in the last 48 hours."""
+    run_api_discovery()
+    endpoints = db_service.get_recently_discovered_endpoints(hours=48)
+    return [calculate_endpoint_score(ep) for ep in endpoints]
+
+
+@router.get("/api-protection/analytics", response_model=Dict[str, Any])
+def get_api_protection_analytics(current_user: TokenData = Depends(require_any_role)):
+    """Computes API analytics such as most consumed, slowest, and traffic band breakdown."""
+    run_api_discovery()
+    endpoints = db_service.get_all_discovered_endpoints()
+    scored_endpoints = [calculate_endpoint_score(ep) for ep in endpoints]
+
+    # Sort for top lists
+    most_consumed = sorted(
+        scored_endpoints, key=lambda x: x["hit_count"], reverse=True
+    )[:5]
+    slowest = sorted(
+        scored_endpoints, key=lambda x: x["avg_response_time_ms"], reverse=True
+    )[:5]
+
+    # Compute traffic bands
+    total_hits = sum(ep["hit_count"] for ep in scored_endpoints)
+    total_malicious = sum(ep["malicious_count"] for ep in scored_endpoints)
+    total_suspicious = sum(ep["suspicious_count"] for ep in scored_endpoints)
+    total_normal = max(0, total_hits - total_malicious - total_suspicious)
+
+    # Calculate average response time across all endpoints
+    avg_response_time = 0.0
+    if total_hits > 0:
+        weighted_sum = sum(
+            ep["avg_response_time_ms"] * ep["hit_count"] for ep in scored_endpoints
+        )
+        avg_response_time = round(weighted_sum / total_hits, 2)
+
+    return {
+        "most_consumed": most_consumed,
+        "resource_intensive": slowest,
+        "avg_response_time_ms": avg_response_time,
+        "traffic_bands": {
+            "normal": total_normal,
+            "suspicious": total_suspicious,
+            "malicious": total_malicious,
+        },
+        "total_endpoints_count": len(scored_endpoints),
+    }

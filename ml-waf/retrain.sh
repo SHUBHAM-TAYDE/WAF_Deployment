@@ -1,0 +1,145 @@
+#!/bin/bash
+# =============================================================================
+# retrain.sh — CyberSentinel ML Model Retraining Automation
+# =============================================================================
+# Retrains the XGBoost classifier and Isolation Forest anomaly detector
+# using the latest traffic telemetry stored in ml_events.db.
+#
+# After training, it backups the old model binaries, installs the new ones,
+# restarts the ml-waf FastAPI service, and verifies the health endpoint.
+#
+# Schedule: Run monthly via cron (see /etc/cron.monthly/retrain-ml-models)
+# Log file: /opt/ml-waf/logs/retrain.log
+#
+# Usage: sudo /opt/ml-waf/retrain.sh
+# =============================================================================
+
+set -euo pipefail
+
+# --- Configuration ---
+ML_DIR="/opt/ml-waf"
+VENV_PYTHON="${ML_DIR}/venv/bin/python3"
+MODELS_DIR="${ML_DIR}/models"
+BACKUP_DIR="${ML_DIR}/models/backups"
+LOG_DIR="${ML_DIR}/logs"
+LOG_FILE="${LOG_DIR}/retrain.log"
+HEALTH_URL="http://127.0.0.1:8003/health"
+SERVICE_NAME="ml-waf"
+TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+
+# --- Colors (only when running interactively) ---
+if [ -t 1 ]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; NC=''
+fi
+
+log()     { echo -e "${BLUE}[${TIMESTAMP}]${NC} $*" | tee -a "$LOG_FILE"; }
+success() { echo -e "${GREEN}[OK]${NC} $*"          | tee -a "$LOG_FILE"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $*"       | tee -a "$LOG_FILE"; }
+error()   { echo -e "${RED}[ERROR]${NC} $*"         | tee -a "$LOG_FILE"; exit 1; }
+
+# --- Check root ---
+if [ "$EUID" -ne 0 ]; then
+    error "This script must be run as root. Try: sudo $0"
+fi
+
+# --- Setup log and backup directories ---
+mkdir -p "$LOG_DIR" "$BACKUP_DIR"
+
+log "============================================================"
+log "  CyberSentinel ML Model Retraining — ${TIMESTAMP}"
+log "============================================================"
+
+# --- Step 1: Verify Python venv and training scripts exist ---
+if [ ! -f "$VENV_PYTHON" ]; then
+    error "Python venv not found at ${VENV_PYTHON}. Is the ml-waf venv set up?"
+fi
+if [ ! -f "${ML_DIR}/train_xgb.py" ] || [ ! -f "${ML_DIR}/train_iso.py" ]; then
+    error "Training scripts (train_xgb.py / train_iso.py) not found in ${ML_DIR}."
+fi
+log "Python venv and training scripts verified."
+
+# --- Step 2: Backup existing model binaries ---
+BACKUP_TS="$(date '+%Y%m%d-%H%M%S')"
+log "Backing up existing model binaries to ${BACKUP_DIR}/..."
+
+for MODEL_FILE in xgboost.pkl isolation_forest.pkl; do
+    SRC="${MODELS_DIR}/${MODEL_FILE}"
+    if [ -f "$SRC" ]; then
+        DEST="${BACKUP_DIR}/${MODEL_FILE}.${BACKUP_TS}.bak"
+        cp "$SRC" "$DEST"
+        log "  Backed up: ${MODEL_FILE} → $(basename $DEST)"
+    else
+        warn "  Model file not found (may be first run): ${SRC}"
+    fi
+done
+
+# Keep only the last 5 backups per model to avoid disk bloat
+for MODEL_FILE in xgboost.pkl isolation_forest.pkl; do
+    ls -1t "${BACKUP_DIR}/${MODEL_FILE}".*.bak 2>/dev/null | tail -n +6 | xargs -r rm -f
+done
+log "Old backups pruned (kept last 5 per model)."
+
+# --- Step 3: Retrain Isolation Forest (unsupervised — benign baseline) ---
+log "Training Isolation Forest anomaly detector (train_iso.py)..."
+cd "$ML_DIR"
+"$VENV_PYTHON" train_iso.py 2>&1 | tee -a "$LOG_FILE"
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    error "train_iso.py failed. Aborting — old models remain active."
+fi
+success "Isolation Forest training complete."
+
+# --- Step 4: Retrain XGBoost Classifier (supervised — attack labelling) ---
+log "Training XGBoost classifier (train_xgb.py)..."
+"$VENV_PYTHON" train_xgb.py 2>&1 | tee -a "$LOG_FILE"
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    # Restore ISO backup since XGB failed after ISO already ran
+    LATEST_ISO_BAK=$(ls -1t "${BACKUP_DIR}/isolation_forest.pkl".*.bak 2>/dev/null | head -n 1)
+    [ -n "$LATEST_ISO_BAK" ] && cp "$LATEST_ISO_BAK" "${MODELS_DIR}/isolation_forest.pkl" && warn "Restored ISO Forest backup."
+    error "train_xgb.py failed. Aborting — restoring Isolation Forest backup."
+fi
+success "XGBoost training complete."
+
+# --- Step 5: Verify both model files were actually produced ---
+log "Verifying new model files..."
+for MODEL_FILE in xgboost.pkl isolation_forest.pkl; do
+    FULL_PATH="${MODELS_DIR}/${MODEL_FILE}"
+    if [ ! -f "$FULL_PATH" ]; then
+        error "Expected model not found after training: ${FULL_PATH}"
+    fi
+    SIZE=$(du -sh "$FULL_PATH" | cut -f1)
+    success "  ${MODEL_FILE} — ${SIZE}"
+done
+
+# --- Step 6: Restart the ml-waf FastAPI service to load new models ---
+log "Restarting ${SERVICE_NAME} service to load new model binaries..."
+systemctl restart "$SERVICE_NAME" || {
+    error "Failed to restart ${SERVICE_NAME}. Models may not be loaded."
+}
+success "${SERVICE_NAME} service restarted."
+
+# --- Step 7: Wait for service to come up then hit health endpoint ---
+log "Waiting 5 seconds for service to initialize..."
+sleep 5
+
+log "Checking health endpoint: ${HEALTH_URL}"
+HTTP_STATUS=$(curl -s -o /tmp/health_response.json -w "%{http_code}" --max-time 10 "$HEALTH_URL" 2>/dev/null || echo "000")
+
+if [ "$HTTP_STATUS" = "200" ]; then
+    HEALTH_BODY=$(cat /tmp/health_response.json 2>/dev/null || echo "{}")
+    success "Health check passed (HTTP ${HTTP_STATUS}): ${HEALTH_BODY}"
+else
+    warn "Health check returned HTTP ${HTTP_STATUS}. Service may still be starting."
+    warn "Check manually: curl ${HEALTH_URL}"
+fi
+
+# --- Done ---
+log ""
+success "============================================================"
+success "  ML Model Retraining Complete!"
+success "  Timestamp : ${TIMESTAMP}"
+success "  Models    : ${MODELS_DIR}/"
+success "  Backups   : ${BACKUP_DIR}/"
+success "============================================================"
+log "Full log saved to: ${LOG_FILE}"

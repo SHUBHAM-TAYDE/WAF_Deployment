@@ -1,0 +1,34 @@
+from pydantic import BaseModel
+from typing import List
+from app.models.log_model import LogEntry
+
+
+class PaginatedLogs(BaseModel):
+    data: List[LogEntry]
+    total: int
+    page: int
+    size: int
+
+
+class StatsResponse(BaseModel):
+    total_requests: int
+    total_blocked: int
+    sqli_count: int
+    xss_count: int
+    top_attack_type: str
+    total_unique_ips: int
+
+
+class TimelineEntry(BaseModel):
+    time: str
+    count: int
+
+
+class TimelineResponse(BaseModel):
+    data: List[TimelineEntry]
+
+
+class HealthResponse(BaseModel):
+    status: str
+    log_directory_exists: bool
+    total_parsed_files: int
