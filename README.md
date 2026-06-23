@@ -6,9 +6,9 @@ Whether you are a system administrator, a security engineer, or a non-technical 
 
 ---
 
-## 🌟 What is CyberSentinel? (The Security Guard Analogy)
+## 🌟 What is CyberSentinel WAF? (The Security Guard Analogy)
 
-Imagine your website or web application is a highly secure building. **CyberSentinel acts as the intelligent security guard standing at the front door.**
+Imagine your website or web application is a highly secure building. **CyberSentinel WAF acts as the intelligent security guard standing at the front door.**
 
 Every time a user, a software program, or a search engine tries to visit your website, CyberSentinel checks their credentials and behavior:
 * **The Normal Visitor:** If it's a regular user browsing your site, CyberSentinel lets them in instantly with zero delay.
