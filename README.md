@@ -1,8 +1,8 @@
 # CyberSentinel WAF (Web Application Firewall)
 
-Welcome to CyberSentinel, an advanced, intelligent Web Application Firewall (WAF) dashboard and security platform. 
+Welcome to CyberSentinel WAF, an advanced, intelligent Web Application Firewall (WAF) dashboard and security platform. 
 
-Whether you are a system administrator, a security engineer, or a non-technical business manager, this guide will help you understand exactly what CyberSentinel is, how it protects your digital assets, and how the entire system is built and operates.
+Whether you are a system administrator, a security engineer, or a non-technical business manager, this guide will help you understand exactly what CyberSentinel WAF is, how it protects your digital assets, and how the entire system is built and operates.
 
 ---
 
@@ -10,15 +10,15 @@ Whether you are a system administrator, a security engineer, or a non-technical 
 
 Imagine your website or web application is a highly secure building. **CyberSentinel WAF acts as the intelligent security guard standing at the front door.**
 
-Every time a user, a software program, or a search engine tries to visit your website, CyberSentinel checks their credentials and behavior:
+Every time a user, a software program, or a search engine tries to visit your website, CyberSentinel WAF checks their credentials and behavior:
 * **The Normal Visitor:** If it's a regular user browsing your site, CyberSentinel lets them in instantly with zero delay.
-* **The Hacker or Bad Bot:** If someone tries to break in, inject malicious code, guess passwords, or crash the site, CyberSentinel immediately blocks them at the door, shuts down their access, and logs the incident.
+* **The Hacker or Bad Bot:** If someone tries to break in, inject malicious code, guess passwords, or crash the site, CyberSentinel WAF immediately blocks them at the door, shuts down their access, and logs the incident.
 
 ---
 
 ## 📋 Prerequisites
 
-To run, compile, or develop CyberSentinel, your environment must meet the following requirements:
+To run, compile, or develop CyberSentinel WAF, your environment must meet the following requirements:
 
 ### System Environment
 * **Operating System:** Linux (Debian 11+ or Ubuntu 20.04+ recommended)
@@ -115,7 +115,7 @@ Quick reference mapping of important files, configuration, and log paths:
 
 ## 🏗️ System Architecture & Data Flow
 
-CyberSentinel operates as a multi-layered shield between the public internet and your private application. Here is how the components interact:
+CyberSentinel WAF operates as a multi-layered shield between the public internet and your private application. Here is how the components interact:
 
 ```mermaid
 graph TD
@@ -168,7 +168,7 @@ Traditional firewalls only check if a request contains "bad words" (known signat
 
 ## 🗄️ Database Architecture (Where Data is Saved)
 
-CyberSentinel uses a combination of memory caching and lightweight databases to remain extremely fast and self-contained:
+CyberSentinel WAF uses a combination of memory caching and lightweight databases to remain extremely fast and self-contained:
 
 ### 1. Redis (In-Memory Database)
 Used for **instant, high-speed telemetry tracking**. It acts as the engine's short-term memory:
