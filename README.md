@@ -16,6 +16,92 @@ Every time a user, a software program, or a search engine tries to visit your we
 
 ---
 
+## 📋 Prerequisites
+
+To run, compile, or develop CyberSentinel, your environment must meet the following requirements:
+
+### System Environment
+* **Operating System:** Linux (Debian 11+ or Ubuntu 20.04+ recommended)
+* **Web Server Gateway:** OpenResty (v1.19+) or Nginx compiled with `ngx_http_lua_module` and `modsecurity` modules
+* **WAF Library:** ModSecurity (v3.0.0+) dynamic security library (`libmodsecurity`)
+* **Ruleset:** OWASP Core Rule Set (CRS v3.3+)
+* **In-Memory Cache:** Redis Server (v6.0+) running on port `6379` (essential for real-time request-per-minute limits and reputation tracking)
+* **SQL Database:** SQLite3 (standard system library)
+
+### Development Runtimes
+* **Backend Subsystem:** Python (v3.10+) and `pip3` package manager
+* **Frontend Subsystem:** Node.js (v18.0+) and `npm` package manager
+
+---
+
+## 📂 Folder Structure
+
+Here is an overview of the directory structure of the CyberSentinel WAF repository:
+
+```text
+/opt/ModSecurity/WAF_GUI/
+├── backend/                      # Python FastAPI backend server
+│   ├── main.py                   # Launcher entry point
+│   ├── requirements.txt          # Python dependencies for the backend
+│   └── app/                      # Application core package
+│       ├── main.py               # FastAPI configuration & routing registry
+│       ├── config/               # System settings files & SQLite databases
+│       │   ├── settings.json     # Active system configurations (WAF, DDoS, etc.)
+│       │   ├── rule_states.json  # Cached ModSecurity CRS rule states
+│       │   └── false_positives.db # SQLite database storing false positive overrides
+│       ├── routes/               # REST API endpoints (logs, rules, settings, etc.)
+│       ├── services/             # Business logic layer (Nginx manager, db, shell executors)
+│       ├── parsers/              # System log parsers (ModSecurity audit log parser)
+│       ├── models/               # Pydantic schemas and schema models
+│       └── websocket/            # Live logs real-time WebSocket connection manager
+├── ml-waf/                       # Machine Learning Security Engine (subsystem)
+│   ├── ml_server.py              # FastAPI microservice exposing scoring Rest APIs
+│   ├── requirements.txt          # Python machine learning dependencies
+│   ├── threat_score.py           # Core threat score compilation logic
+│   ├── feature_pipeline.py       # Raw data vectors feature extraction pipeline
+│   ├── collect_data.py           # Compiles audit logs into training datasets
+│   ├── train_xgb.py              # Script to train the XGBoost model
+│   ├── train_iso.py              # Script to train the Isolation Forest model
+│   ├── ml_check.lua              # Lua hook script executing in OpenResty proxy context
+│   └── retrain.sh                # Shell automation script to retrain ML models
+├── src/                          # Vite + React Frontend Dashboard
+│   ├── main.jsx                  # React application entrypoint
+│   ├── App.jsx                   # Primary layout, routes, navigation, and tab renders
+│   ├── index.css                 # Global styles, tailwind/vanilla CSS tokens, and theme
+│   ├── components/               # Reusable UI component modules
+│   │   ├── Login.jsx             # Access control authentication login panel
+│   │   └── DdosBotMitigation.jsx # DDoS configuration editor dashboard
+│   └── services/                 # Frontend API services layer
+│       └── api.js                # API request clients wrapper to fetch backend APIs
+├── scripts/                      # System administration & deployment scripts
+│   ├── compile-nginx-lua.sh      # Compiles Nginx / OpenResty Lua modules
+│   ├── rebuild-modsecurity-nginx.sh # Dynamic compilation of WAF engine modules
+│   ├── update-crs.sh             # Core Rule Set updater script
+│   └── deploy-frontend.sh        # Frontend distribution builder and deployment script
+├── vite.config.js                # Vite build and server configurations
+└── index.html                    # Single Page Application main entrypoint
+```
+
+---
+
+## 📍 Important File Paths
+
+Quick reference mapping of important files, configuration, and log paths:
+
+| Component | File Path | Description |
+|---|---|---|
+| **System Settings** | `backend/app/config/settings.json` | Stores WAF modes, IP blacklists/whitelists, and DDoS thresholds |
+| **CRS Rule States** | `backend/app/config/rule_states.json` | JSON list of active/inactive Core Rule Set rules |
+| **False Positives** | `backend/app/config/false_positives.db` | SQLite database storing exceptions & analyst justification notes |
+| **ML Inference DB** | `ml-waf/ml_events.db` | SQLite database logging threat evaluations, decisions, and scores |
+| **ML Lua Integration**| `ml-waf/ml_check.lua` | Request inspection script loaded inside OpenResty request cycles |
+| **Nginx Config** | `/etc/nginx/nginx.conf` | Primary configuration mapping request proxies |
+| **ModSecurity Config**| `/etc/nginx/modsec/main.conf` | Core configurations file listing WAF rules and OWASP CRS rules |
+| **WAF Audit Log** | `/var/log/nginx/modsec_audit.log` | ModSecurity transactional audit log read by the backend parser |
+| **Backend Service Log**| `backend/backend.log` | Standard output log for the backend FastAPI application |
+
+---
+
 ## 🛡️ Core Security Features
 
 1. **Active Threat Blocking:** Instantly detects and blocks common hacker attacks (such as SQL Injection, Cross-Site Scripting (XSS), and Path Traversal) before they reach your web application.
@@ -108,3 +194,4 @@ To maintain a lightweight footprint without requiring a bulky database engine, l
 * **Secure Verification:** When a user logs in via the dashboard, the backend hashes the input password and checks if it matches the hash stored in `settings.json`.
 * **Stateless JWT Tokens:** Upon successful login, the backend generates a **JSON Web Token (JWT)**. The user's browser saves this token in `localStorage`. For every future dashboard action, the browser automatically sends this token. The backend verifies the token's validity mathematically, meaning it doesn't need to look up active sessions in a database.
 * **Role-Based Access Control:** Users are assigned either an `Admin` role (can modify settings, reload Nginx, turn WAF off) or an `Analyst` role (read-only access to view logs, charts, and statistics).
+* **Note on Bypassing Authentication:** In local, development, or single-tenant direct-access environments, frontend login checks can be bypassed by setting `isAuthenticated` state to `true` in `App.jsx` and corresponding API dependency mocks in `auth.py`.
