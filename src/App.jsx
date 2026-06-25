@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Server, Search, Filter, ShieldCheck,
   AlertTriangle, Globe, Lock
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, Bar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, Bar, RadialBarChart, RadialBar } from 'recharts';
 import { getLogs, getStats, getTimeline, getAttackTypes, getTopRules, getSeverityDistribution, getTopIPs, getRules, getRuleDetails, enableRule, disableRule, setParanoiaLevel, getRulesStats, getRulesHistory, resetRules, getHealth, getGeneralSettings, saveGeneralSettings, getLogSettings, saveLogSettings, getWafSettings, saveWafSettings, changeAdminPassword, restartWafEngine, reloadNginxProxy, purgeStatsCache, syncSignatures, markFalsePositive, getFalsePositives, updateFalsePositiveStatus, updateFalsePositiveNote, deleteFalsePositive, createExclusion, getExclusions, updateExclusionStatus, updateExclusionNote, deleteExclusion, getExclusionsAnalytics, getExclusionsHistory, previewExclusionRule, getDiscoveredEndpoints, getRecentlyDiscoveredEndpoints, getApiProtectionAnalytics, getHardeningSettings, saveHardeningSettings, getAntiDefacementSettings, saveAntiDefacementSettings, getMLStats, getMLLogs, getMLTimeline } from './services/api';
 import { Copy, Check, ChevronLeft, ChevronRight, X, Clock, Database, Code, ShieldAlert as AlertIcon, AlertTriangle as AlertTriangleIcon, LogOut, Brain } from 'lucide-react';
 import Login from './components/Login';
@@ -138,7 +138,7 @@ function LogDetailsModal({ isOpen, log, onClose, onMarkFalsePositive }) {
           </button>
         </div>
         <div className="modal-body" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-          
+
           {/* Metadata Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div>
@@ -192,8 +192,8 @@ function LogDetailsModal({ isOpen, log, onClose, onMarkFalsePositive }) {
 
           {/* Request Headers */}
           <div style={{ marginBottom: '16px' }}>
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => setShowReqHeaders(!showReqHeaders)}
               className="pagination-btn"
               style={{ width: '100%', display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', margin: 0 }}
@@ -223,8 +223,8 @@ function LogDetailsModal({ isOpen, log, onClose, onMarkFalsePositive }) {
 
           {/* Response Headers */}
           <div style={{ marginBottom: '16px' }}>
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => setShowResHeaders(!showResHeaders)}
               className="pagination-btn"
               style={{ width: '100%', display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', margin: 0 }}
@@ -268,7 +268,7 @@ function LogDetailsModal({ isOpen, log, onClose, onMarkFalsePositive }) {
                       )}
                     </div>
                     <div style={{ fontSize: '13px', color: '#fde047', marginBottom: '8px' }}>{violation.message}</div>
-                    
+
                     {/* Matched Data / Violating Payload */}
                     {violation.data && (
                       <div style={{ marginTop: '8px' }}>
@@ -278,7 +278,7 @@ function LogDetailsModal({ isOpen, log, onClose, onMarkFalsePositive }) {
                         </pre>
                       </div>
                     )}
-                    
+
                     {/* Match Pattern / Regex Signature */}
                     {violation.pattern && (
                       <div style={{ marginTop: '8px' }}>
@@ -344,51 +344,39 @@ function Sidebar({ activeTab, setActiveTab, handleLogout, userRole, collapsed, s
 
   return (
     <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
-      <div className="sidebar-brand" style={{ 
-        position: 'relative', 
-        display: 'flex', 
-        alignItems: 'center', 
-        padding: collapsed ? '0 8px 32px' : '0 26px 32px',
-        height: '60px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div className="sidebar-brand">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <img 
             src="/WAFlogo.ico" 
             alt="WAF Logo" 
             style={{ 
-              height: collapsed ? '20px' : '28px', 
-              width: collapsed ? '20px' : '28px', 
-              objectFit: 'contain' 
+              height: collapsed ? '28px' : '46px', 
+              width: collapsed ? '28px' : '46px', 
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 0 8px rgba(0, 212, 255, 0.4))'
             }} 
             className="brand-icon" 
           />
-          {!collapsed && <span className="brand-text">CyberSentinel WAF</span>}
+          {!collapsed && (
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <span className="brand-text">
+                CyberSentinel
+              </span>
+              <span className="sidebar-brand-subtitle">
+                WAF ENGINE
+              </span>
+            </div>
+          )}
         </div>
         <div 
           onClick={() => setCollapsed(!collapsed)} 
-          style={{ 
-            cursor: 'pointer', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            color: 'var(--text-primary)',
-            position: 'absolute',
-            right: collapsed ? '10px' : '24px',
-            top: collapsed ? '2px' : '2px',
-            width: '24px',
-            height: '24px',
-            borderRadius: '6px',
-            background: 'rgba(255, 255, 255, 0.06)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-            zIndex: 20
-          }}
           className="sidebar-toggle"
           title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
           <ToggleIcon size={14} />
         </div>
       </div>
+      
       <div className="nav-menu">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -398,20 +386,75 @@ function Sidebar({ activeTab, setActiveTab, handleLogout, userRole, collapsed, s
               className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
               onClick={() => setActiveTab(item.id)}
             >
-              <Icon size={18} />
+              <Icon size={20} />
               <span>{item.label}</span>
             </div>
           );
         })}
       </div>
-      <div className="sidebar-footer" style={{ marginTop: 'auto', padding: '24px 0', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-        <div className="nav-item" onClick={handleLogout} style={{ color: '#ef4444' }}>
-          <LogOut size={18} />
+
+      {/* System Status Mini-panel */}
+      {!collapsed && (
+        <div className="sidebar-status-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div className="sidebar-status-item">
+            <div className="pulse-dot"></div>
+            <span>WAF: ACTIVE</span>
+          </div>
+          <div className="sidebar-status-item">
+            <div className="pulse-dot"></div>
+            <span>AI: ONLINE</span>
+          </div>
+          <div className="sidebar-status-item">
+            <div className="pulse-dot"></div>
+            <span>REDIS: CONNECTED</span>
+          </div>
+        </div>
+      )}
+
+      <div className="sidebar-footer">
+        <div className="nav-item" onClick={handleLogout}>
+          <LogOut size={20} />
           <span>Logout</span>
         </div>
       </div>
     </div>
   );
+}
+
+function AnimatedNumber({ value }) {
+  const [displayValue, setDisplayValue] = React.useState(value);
+  
+  React.useEffect(() => {
+    let start = displayValue;
+    const end = value;
+    if (start === end) return;
+    
+    const duration = 800; // ms
+    const startTime = performance.now();
+    
+    let animationFrame;
+    const updateNumber = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // easeOutQuad
+      const easeProgress = progress * (2 - progress);
+      const current = Math.floor(start + (end - start) * easeProgress);
+      
+      setDisplayValue(current);
+      
+      if (progress < 1) {
+        animationFrame = requestAnimationFrame(updateNumber);
+      } else {
+        setDisplayValue(end);
+      }
+    };
+    
+    animationFrame = requestAnimationFrame(updateNumber);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [value]);
+  
+  return <span>{displayValue.toLocaleString()}</span>;
 }
 
 function ThreatAnalytics() {
@@ -431,6 +474,9 @@ function ThreatAnalytics() {
   const [loading, setLoading] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(3000);
   const [liveUpdates, setLiveUpdates] = useState(true);
+
+  const [showFlash, setShowFlash] = useState(false);
+  const prevBlockedRef = React.useRef(0);
 
   useEffect(() => {
     getGeneralSettings().then(settings => {
@@ -452,6 +498,12 @@ function ThreatAnalytics() {
         getTopRules(),
         getTopIPs()
       ]);
+
+      if (prevBlockedRef.current && statsRes.total_blocked > prevBlockedRef.current) {
+        setShowFlash(true);
+        setTimeout(() => setShowFlash(false), 800);
+      }
+      prevBlockedRef.current = statsRes.total_blocked;
 
       setStats(statsRes);
 
@@ -520,12 +572,67 @@ function ThreatAnalytics() {
 
   if (loading && timelineData.length === 0) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px', color: '#a1a1aa', gap: '12px' }}>
-        <Activity className="animate-spin" size={24} color="#3b82f6" />
-        <span>Initializing CyberSentinel Threat Analytics Engine...</span>
+      <div className="dashboard-grid animate-pulse" style={{ opacity: 0.7 }}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="metric-card glass-panel" style={{ gridColumn: i === 1 || i === 4 ? 'span 3' : 'span 2', minHeight: '120px' }}>
+            <div style={{ width: '40%', height: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }} />
+            <div style={{ width: '60%', height: '28px', background: 'rgba(255,255,255,0.08)', borderRadius: '6px', marginTop: '16px' }} />
+            <div style={{ width: '30%', height: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '3px', marginTop: '12px' }} />
+          </div>
+        ))}
+        <div className="chart-card glass-panel" style={{ gridColumn: 'span 8', minHeight: '350px' }}>
+          <div style={{ width: '30%', height: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '24px' }} />
+          <div style={{ width: '100%', height: '240px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }} />
+        </div>
+        <div className="chart-card glass-panel" style={{ gridColumn: 'span 4', minHeight: '350px' }}>
+          <div style={{ width: '40%', height: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '24px' }} />
+          <div style={{ width: '120px', height: '120px', borderRadius: '50%', border: '8px solid rgba(255,255,255,0.03)', margin: '40px auto' }} />
+        </div>
       </div>
     );
   }
+
+  const blockedPercentage = stats.total_requests > 0 ? (stats.total_blocked / stats.total_requests) * 100 : 0;
+  const radius = 22;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (blockedPercentage / 100) * circumference;
+
+  const maxVectorValue = Math.max(...attackDistribution.map(d => d.value), 1);
+  const totalSeverityCount = severityDistribution.reduce((acc, curr) => acc + curr.value, 0);
+
+  const radialData = severityDistribution
+    .filter(s => s.value > 0)
+    .map((s) => ({
+      name: s.name,
+      value: s.value,
+      fill: COLORS[s.name] || '#3b82f6'
+    }));
+
+  const CustomTimelineTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div style={{
+          background: 'rgba(6, 13, 23, 0.95)',
+          border: '1px solid rgba(0, 212, 255, 0.2)',
+          borderRadius: '8px',
+          padding: '10px 14px',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(8px)'
+        }}>
+          <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', marginBottom: '4px' }}>
+            TIME: {label}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--danger-color)' }} />
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              Attacks: {payload[0].value}
+            </span>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <motion.div
@@ -540,30 +647,53 @@ function ThreatAnalytics() {
           <span>Total Requests Analyzed</span>
           <div className="metric-icon-wrapper blue"><Activity size={18} /></div>
         </div>
-        <div className="metric-value">{stats.total_requests.toLocaleString()}</div>
+        <div className="metric-value"><AnimatedNumber value={stats.total_requests} /></div>
         <div className="metric-trend trend-down">
           <Clock size={12} /> <span>Real-time capture</span>
         </div>
       </div>
 
-      <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
+      <div className="metric-card glass-panel danger" style={{ gridColumn: 'span 3', animation: stats.total_blocked > 50 ? 'dangerPulse 2s infinite' : 'none' }}>
         <div className="metric-header">
           <span>Blocked WAF Threats</span>
           <div className="metric-icon-wrapper red"><AlertIcon size={18} /></div>
         </div>
-        <div className="metric-value" style={{ color: '#ef4444' }}>{stats.total_blocked.toLocaleString()}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0' }}>
+          <div className="metric-value" style={{ color: 'var(--danger-color)' }}><AnimatedNumber value={stats.total_blocked} /></div>
+          
+          <div style={{ position: 'relative', width: '56px', height: '56px' }}>
+            <svg width="56" height="56" viewBox="0 0 56 56" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="28" cy="28" r={radius} stroke="rgba(255, 255, 255, 0.05)" strokeWidth={4} fill="transparent" />
+              <circle 
+                cx="28" 
+                cy="28" 
+                r={radius} 
+                stroke="var(--danger-color)" 
+                strokeWidth={4} 
+                fill="transparent" 
+                strokeDasharray={circumference} 
+                strokeDashoffset={strokeDashoffset} 
+                strokeLinecap="round"
+                style={{ transition: 'stroke-dashoffset 0.8s ease' }}
+              />
+            </svg>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold', color: 'var(--danger-color)', fontFamily: 'var(--font-mono)' }}>
+              {Math.round(blockedPercentage)}%
+            </div>
+          </div>
+        </div>
         <div className="metric-trend trend-up">
           <div className="pulse-dot" style={{ marginRight: '6px' }}></div>
           <span>Active protection shields active</span>
         </div>
       </div>
 
-      <div className="metric-card glass-panel" style={{ gridColumn: 'span 2' }}>
+      <div className="metric-card glass-panel warning" style={{ gridColumn: 'span 2' }}>
         <div className="metric-header">
           <span>SQL Injection Count</span>
           <div className="metric-icon-wrapper orange"><Database size={18} /></div>
         </div>
-        <div className="metric-value" style={{ color: '#fb923c' }}>{stats.sqli_count.toLocaleString()}</div>
+        <div className="metric-value" style={{ color: 'var(--warning-color)' }}><AnimatedNumber value={stats.sqli_count} /></div>
         <div className="metric-trend trend-down">
           <span>Inbound vectors</span>
         </div>
@@ -572,9 +702,9 @@ function ThreatAnalytics() {
       <div className="metric-card glass-panel" style={{ gridColumn: 'span 2' }}>
         <div className="metric-header">
           <span>Cross-Site Scripting (XSS)</span>
-          <div className="metric-icon-wrapper orange" style={{ color: '#ec4899', background: 'rgba(236,72,153,0.1)' }}><Code size={18} /></div>
+          <div className="metric-icon-wrapper orange" style={{ color: '#ec4899', background: 'rgba(236,72,153,0.1)', boxShadow: '0 0 12px rgba(236, 72, 153, 0.15)' }}><Code size={18} /></div>
         </div>
-        <div className="metric-value" style={{ color: '#ec4899' }}>{stats.xss_count.toLocaleString()}</div>
+        <div className="metric-value" style={{ color: '#ec4899' }}><AnimatedNumber value={stats.xss_count} /></div>
         <div className="metric-trend trend-down">
           <span>Application shields</span>
         </div>
@@ -583,19 +713,32 @@ function ThreatAnalytics() {
       <div className="metric-card glass-panel" style={{ gridColumn: 'span 3' }}>
         <div className="metric-header">
           <span>Unique Attacking IPs</span>
-          <div className="metric-icon-wrapper orange"><Globe size={18} /></div>
+          <div className="metric-icon-wrapper blue"><Globe size={18} /></div>
         </div>
-        <div className="metric-value" style={{ color: '#3b82f6' }}>{stats.total_unique_ips.toLocaleString()}</div>
+        <div className="metric-value" style={{ color: 'var(--accent-color)' }}><AnimatedNumber value={stats.total_unique_ips} /></div>
         <div className="metric-trend trend-up">
           <span>Globally distributed attackers</span>
         </div>
       </div>
 
       {/* Main Timeline Chart */}
-      <div className="chart-card glass-panel" style={{ gridColumn: 'span 8' }}>
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 8', position: 'relative' }}>
+        {showFlash && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(255, 59, 92, 0.08)',
+            border: '2px solid var(--danger-color)',
+            boxShadow: 'inset 0 0 20px rgba(255, 59, 92, 0.3)',
+            borderRadius: '16px',
+            pointerEvents: 'none',
+            zIndex: 10,
+            transition: 'all 0.1s ease-in-out'
+          }} />
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div className="card-title" style={{ marginBottom: 0 }}>
-            <Activity size={18} color="#3b82f6" />
+            <Activity size={18} color="var(--accent-color)" />
             Attack Timeline / Inbound Threats Over Time
           </div>
           <div className="pulse-container">
@@ -608,105 +751,135 @@ function ThreatAnalytics() {
             <AreaChart data={timelineData}>
               <defs>
                 <linearGradient id="colorAttacks" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor="var(--danger-color)" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="var(--danger-color)" stopOpacity={0.0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
               <XAxis dataKey="time" stroke="#a1a1aa" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={50} />
               <YAxis stroke="#a1a1aa" fontSize={11} tickLine={false} axisLine={false} />
-              <RechartsTooltip
-                contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
-                itemStyle={{ color: '#fff' }}
-              />
-              <Area type="monotone" dataKey="attacks" name="Triggered Events" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorAttacks)" />
+              <RechartsTooltip content={<CustomTimelineTooltip />} />
+              <Area type="monotone" dataKey="attacks" name="Triggered Events" stroke="var(--danger-color)" strokeWidth={2} fillOpacity={1} fill="url(#colorAttacks)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Severity Distribution Pie Chart */}
-      <div className="chart-card glass-panel" style={{ gridColumn: 'span 4' }}>
+      {/* Severity Distribution RadialBarChart */}
+      <div className="chart-card glass-panel" style={{ gridColumn: 'span 4', position: 'relative' }}>
         <div className="card-title">
-          <AlertIcon size={18} color="#ef4444" />
+          <AlertIcon size={18} color="var(--danger-color)" />
           Severity Distribution
         </div>
-        <div className="chart-container" style={{ minHeight: '300px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-          <ResponsiveContainer width="100%" height="70%">
-            <PieChart>
-              <Pie
-                data={severityDistribution.filter(s => s.value > 0)}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={80}
-                paddingAngle={4}
-                dataKey="value"
-              >
-                {severityDistribution.filter(s => s.value > 0).map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[entry.name] || '#3b82f6'} />
-                ))}
-              </Pie>
-              <RechartsTooltip
-                contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
-                itemStyle={{ color: '#fff' }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', width: '100%', padding: '12px 24px' }}>
+        <div className="chart-container" style={{ minHeight: '300px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+          {radialData.length === 0 ? (
+            <div style={{ color: '#a1a1aa', fontSize: '13px' }}>No severity data recorded</div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height="70%">
+                <RadialBarChart 
+                  cx="50%" 
+                  cy="50%" 
+                  innerRadius="35%" 
+                  outerRadius="95%" 
+                  barSize={10} 
+                  data={radialData}
+                  startAngle={180}
+                  endAngle={-180}
+                >
+                  <RadialBar
+                    minAngle={15}
+                    background={{ fill: 'rgba(255, 255, 255, 0.02)' }}
+                    clockWise
+                    dataKey="value"
+                    cornerRadius={5}
+                  />
+                  <RechartsTooltip
+                    contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
+                    itemStyle={{ color: '#fff' }}
+                  />
+                </RadialBarChart>
+              </ResponsiveContainer>
+
+              {/* Centered label inside the radial rings */}
+              <div style={{
+                position: 'absolute',
+                top: '35%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                textAlign: 'center',
+                pointerEvents: 'none'
+              }}>
+                <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                  {totalSeverityCount}
+                </div>
+                <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '1px' }}>
+                  TOTAL HITS
+                </div>
+              </div>
+            </>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', width: '100%', padding: '12px 24px' }}>
             {severityDistribution.map((entry) => (
-              <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: COLORS[entry.name] || '#3b82f6' }}></div>
+              <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLORS[entry.name] || '#3b82f6' }}></div>
                 <span style={{ color: '#a1a1aa' }}>{entry.name}:</span>
-                <span style={{ fontWeight: 600 }}>{entry.value}</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{entry.value}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Attack Categories Distribution */}
+      {/* Attack Categories Distribution (Horizontal bars) */}
       <div className="chart-card glass-panel" style={{ gridColumn: 'span 5' }}>
         <div className="card-title">
-          <ShieldAlert size={18} color="#f97316" />
+          <ShieldAlert size={18} color="var(--warning-color)" />
           Attack Vector Distribution
         </div>
-        <div className="chart-container" style={{ minHeight: '320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+        <div className="chart-container" style={{ minHeight: '320px', padding: '10px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           {attackDistribution.length === 0 ? (
-            <div style={{ color: '#a1a1aa', fontSize: '13px' }}>No categories data recorded</div>
+            <div style={{ color: '#a1a1aa', fontSize: '13px', textAlign: 'center' }}>No categories data recorded</div>
           ) : (
-            <>
-              <ResponsiveContainer width="100%" height="70%">
-                <PieChart>
-                  <Pie
-                    data={attackDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={0}
-                    outerRadius={75}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    {attackDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[entry.name] || severityColors[index % severityColors.length]} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip
-                    contentStyle={{ backgroundColor: 'rgba(15, 16, 22, 0.95)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
-                    itemStyle={{ color: '#fff' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 12px', justifyContent: 'center', width: '100%', padding: '12px 10px' }}>
-                {attackDistribution.map((entry, index) => (
-                  <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLORS[entry.name] || severityColors[index % severityColors.length] }}></div>
-                    <span style={{ color: '#a1a1aa', whiteSpace: 'nowrap' }}>{entry.name}:</span>
-                    <span style={{ fontWeight: 600 }}>{entry.value}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
+              {attackDistribution.map((entry) => {
+                const percentage = (entry.value / maxVectorValue) * 100;
+                const barColor = COLORS[entry.name] || '#3b82f6';
+                return (
+                  <div key={entry.name} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{entry.name}</span>
+                      <span style={{ 
+                        fontFamily: 'var(--font-mono)', 
+                        fontWeight: 700, 
+                        color: barColor,
+                        background: `${barColor}15`,
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        border: `1px solid ${barColor}30`
+                      }}>
+                        {entry.value}
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '4px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${percentage}%` }}
+                        transition={{ duration: 0.8, ease: 'easeOut' }}
+                        style={{
+                          height: '100%',
+                          background: `linear-gradient(90deg, ${barColor}88, ${barColor})`,
+                          borderRadius: '4px',
+                          boxShadow: `0 0 10px ${barColor}40`
+                        }}
+                      />
+                    </div>
                   </div>
-                ))}
-              </div>
-            </>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
@@ -714,42 +887,88 @@ function ThreatAnalytics() {
       {/* Top Attacking IPs List */}
       <div className="chart-card glass-panel" style={{ gridColumn: 'span 4' }}>
         <div className="card-title">
-          <Globe size={18} color="#3b82f6" />
+          <Globe size={18} color="var(--accent-color)" />
           Top Threat Origin IPs
         </div>
-        <div className="chart-container" style={{ minHeight: '320px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%', height: '100%', justifyContent: 'center' }}>
+        <div className="chart-container" style={{ minHeight: '320px', padding: '10px 0' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', height: '100%', justifyContent: 'center' }}>
             {topIPs.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#a1a1aa', fontSize: '13px' }}>No malicious IPs recorded yet.</div>
             ) : (
-              topIPs.map((ipObj, index) => (
-                <div key={ipObj.ip || index} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ color: '#a1a1aa', fontWeight: 600, fontSize: '12px', width: '16px' }}>#{index + 1}</span>
-                      <span style={{ fontFamily: 'monospace', color: '#3b82f6', fontWeight: 500 }}>{ipObj.ip}</span>
+              topIPs.map((ipObj, index) => {
+                const getFlagEmoji = (countryCode) => {
+                  if (!countryCode || countryCode === 'Unknown' || countryCode === 'Internal') return '🌐';
+                  const codePoints = countryCode
+                    .toUpperCase()
+                    .split('')
+                    .map(char => 127397 + char.charCodeAt(0));
+                  try {
+                    return String.fromCodePoint(...codePoints);
+                  } catch (e) {
+                    return '🌐';
+                  }
+                };
+
+                return (
+                  <div 
+                    key={ipObj.ip || index} 
+                    className="ip-row-glow"
+                    style={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '6px', 
+                      padding: '8px 12px', 
+                      borderRadius: '8px', 
+                      transition: 'all 0.2s ease-in-out',
+                      background: 'rgba(255, 255, 255, 0.01)',
+                      border: '1px solid rgba(255, 255, 255, 0.02)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#a1a1aa', fontWeight: 600, fontSize: '11px', width: '16px' }}>#{index + 1}</span>
+                        <span style={{ fontSize: '14px' }} title={ipObj.country || 'Unknown'}>
+                          {getFlagEmoji(ipObj.country)}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-color)', fontWeight: 600 }}>{ipObj.ip}</span>
+                        {ipObj.abuse_score > 0 && (
+                          <span style={{ 
+                            fontSize: '9px', 
+                            fontWeight: 'bold', 
+                            color: 'var(--danger-color)', 
+                            border: '1px solid rgba(255, 59, 92, 0.3)', 
+                            background: 'rgba(255, 59, 92, 0.1)', 
+                            padding: '1px 5px', 
+                            borderRadius: '3px',
+                            fontFamily: 'var(--font-mono)'
+                          }}>
+                            CONF: {ipObj.abuse_score}%
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontWeight: 700, color: 'var(--danger-color)', fontFamily: 'var(--font-mono)' }}>{ipObj.count} hits</span>
                     </div>
-                    <span style={{ fontWeight: 600, color: '#ef4444' }}>{ipObj.count} blocks</span>
+                    <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{
+                        width: `${Math.min((ipObj.count / (topIPs[0]?.count || 1)) * 100, 100)}%`,
+                        height: '100%',
+                        background: 'linear-gradient(90deg, var(--accent-color), var(--danger-color))',
+                        borderRadius: '3px',
+                        boxShadow: '0 0 8px rgba(0, 212, 255, 0.4)'
+                      }}></div>
+                    </div>
                   </div>
-                  <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{
-                      width: `${Math.min((ipObj.count / (topIPs[0]?.count || 1)) * 100, 100)}%`,
-                      height: '100%',
-                      background: 'linear-gradient(90deg, #3b82f6, #ef4444)',
-                      borderRadius: '3px'
-                    }}></div>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
       </div>
 
-      {/* Most Triggered Rule IDs List */}
+      {/* Most Triggered OWASP Rules */}
       <div className="chart-card glass-panel" style={{ gridColumn: 'span 3' }}>
         <div className="card-title">
-          <ShieldAlert size={18} color="#ef4444" />
+          <ShieldAlert size={18} color="var(--danger-color)" />
           Most Active OWASP Rules
         </div>
         <div className="chart-container" style={{ minHeight: '320px' }}>
@@ -834,11 +1053,11 @@ function MLAnalytics() {
       if (statsData && !statsData.error) {
         setStats(statsData);
       }
-      
+
       const filters = {};
       if (filterDecision) filters.decision = filterDecision;
       if (searchQuery) filters.search = searchQuery;
-      
+
       const logsData = await getMLLogs(page, size, filters);
       if (logsData && !logsData.error) {
         setLogs(logsData.data || []);
@@ -907,7 +1126,7 @@ function MLAnalytics() {
             <strong style={{ fontSize: '13px', color: 'var(--success-color)' }}>Predictive Protection Shields Active</strong>
           </div>
         </div>
-        
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Auto Refresh:</span>
@@ -918,7 +1137,7 @@ function MLAnalytics() {
               style={{ cursor: 'pointer', width: '16px', height: '16px' }}
             />
           </div>
-          
+
           <select
             value={refreshInterval}
             onChange={(e) => setRefreshInterval(Number(e.target.value))}
@@ -931,8 +1150,8 @@ function MLAnalytics() {
             <option value={5000}>5s Refresh</option>
             <option value={10000}>10s Refresh</option>
           </select>
-          
-          <button 
+
+          <button
             className="modal-btn primary"
             onClick={fetchMLData}
             style={{ padding: '6px 14px', borderRadius: '8px' }}
@@ -1001,14 +1220,14 @@ function MLAnalytics() {
           <SettingsIcon size={18} color="var(--accent-color)" />
           Hybrid Decision Matrix Routing Thresholds
         </div>
-        
+
         <div style={{ display: 'flex', width: '100%', height: '32px', borderRadius: '8px', overflow: 'hidden', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', marginBottom: '16px', fontSize: '12px', fontWeight: 600, textAlign: 'center', lineHeight: '32px' }}>
           <div style={{ width: '40%', background: 'rgba(16, 185, 129, 0.15)', borderRight: '1px solid rgba(16, 185, 129, 0.3)', color: 'var(--success-color)' }}>ALLOW (Score &lt; 40%)</div>
           <div style={{ width: '30%', background: 'rgba(99, 102, 241, 0.15)', borderRight: '1px solid rgba(99, 102, 241, 0.3)', color: 'var(--accent-color)' }}>LOG (40% - 70%)</div>
           <div style={{ width: '15%', background: 'rgba(245, 158, 11, 0.15)', borderRight: '1px solid rgba(245, 158, 11, 0.3)', color: 'var(--warning-color)' }}>LIMIT (70% - 85%)</div>
           <div style={{ width: '15%', background: 'rgba(244, 63, 94, 0.15)', color: 'var(--danger-color)' }}>BLOCK (&gt;= 85%)</div>
         </div>
-        
+
         <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '13px', flexWrap: 'wrap', gap: '8px' }}>
           <span>ℹ️ Scores combine CRS signatures (50%), XGBoost classification (30%), Isolation Forest novelty (20%), and Redis reputation.</span>
           <span style={{ color: 'var(--accent-color)', fontWeight: 500 }}>Engine: Active (FastAPI Daemon)</span>
@@ -1028,7 +1247,7 @@ function MLAnalytics() {
             <span>Live Sync</span>
           </div>
         </div>
-        
+
         <div className="chart-container" style={{ minHeight: '280px' }}>
           {timeline.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
@@ -1129,7 +1348,7 @@ function MLAnalytics() {
           <Brain size={18} color="var(--accent-color)" />
           Mitigation Action Shares
         </div>
-        
+
         <div className="chart-container" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '100%', height: '160px' }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -1159,7 +1378,7 @@ function MLAnalytics() {
               </PieChart>
             </ResponsiveContainer>
           </div>
-          
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', width: '100%', marginTop: '16px', fontSize: '12px' }}>
             {Object.entries(stats.decision_breakdown).map(([key, val]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
@@ -1178,7 +1397,7 @@ function MLAnalytics() {
           <Globe size={18} color="var(--accent-color)" />
           Highly Suspect Target Endpoints
         </div>
-        
+
         <div style={{ overflow: 'hidden' }}>
           {stats.top_anomalous_uris.length > 0 ? (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -1214,7 +1433,7 @@ function MLAnalytics() {
           <Server size={18} color="var(--accent-color)" />
           Top Suspect Client IPs
         </div>
-        
+
         <div style={{ overflow: 'hidden' }}>
           {stats.top_anomalous_ips.length > 0 ? (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -1250,7 +1469,7 @@ function MLAnalytics() {
             <ShieldAlert size={18} color="var(--danger-color)" />
             Recent AI/ML Evaluation Inferences
           </div>
-          
+
           <div style={{ display: 'flex', gap: '12px' }}>
             <input
               type="text"
@@ -1263,7 +1482,7 @@ function MLAnalytics() {
               className="search-input"
               style={{ width: '220px', paddingLeft: '14px' }}
             />
-            
+
             <select
               value={filterDecision}
               onChange={(e) => {
@@ -1298,8 +1517,8 @@ function MLAnalytics() {
             <tbody>
               {logs.length > 0 ? (
                 logs.map((log) => (
-                  <tr 
-                    key={log.id} 
+                  <tr
+                    key={log.id}
                     onClick={() => setSelectedLog(log)}
                     style={{ cursor: 'pointer' }}
                   >
@@ -1382,7 +1601,7 @@ function MLAnalytics() {
       </div>
 
       {/* View Payload Detail Modal */}
-      {selectedLog && (
+      {selectedLog && createPortal(
         <div className="modal-overlay" onClick={() => setSelectedLog(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '680px' }}>
             <div className="modal-header">
@@ -1392,7 +1611,7 @@ function MLAnalytics() {
               </h3>
               <button className="modal-close-btn" onClick={() => setSelectedLog(null)}><X size={18} /></button>
             </div>
-            
+
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '80vh', overflowY: 'auto' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
                 <div>
@@ -1464,19 +1683,19 @@ function MLAnalytics() {
                 <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontSize: '13px' }}>Reconstructed HTTP Request Signature</span>
                 <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--accent-color)', overflowX: 'auto', fontSize: '12px', lineHeight: '1.5' }}>
                   {`${selectedLog.method} ${selectedLog.uri}${selectedLog.args ? `?${selectedLog.args}` : ''} HTTP/1.1\n` +
-                   `Host: localhost\n` +
-                   (selectedLog.ua ? `User-Agent: ${selectedLog.ua}\n` : '') +
-                   (selectedLog.ct ? `Content-Type: ${selectedLog.ct}\n` : '') +
-                   (selectedLog.body_len ? `Content-Length: ${selectedLog.body_len}\n` : '')}
+                    `Host: localhost\n` +
+                    (selectedLog.ua ? `User-Agent: ${selectedLog.ua}\n` : '') +
+                    (selectedLog.ct ? `Content-Type: ${selectedLog.ct}\n` : '') +
+                    (selectedLog.body_len ? `Content-Length: ${selectedLog.body_len}\n` : '')}
                 </pre>
               </div>
 
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Complete Telemetry Database Record</span>
-                  <button 
-                    className="pagination-btn" 
-                    onClick={handleCopy} 
+                  <button
+                    className="pagination-btn"
+                    onClick={handleCopy}
                     style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', margin: 0 }}
                   >
                     {copied ? <Check size={14} color="var(--success-color)" /> : <Copy size={14} />}
@@ -1486,12 +1705,13 @@ function MLAnalytics() {
                 <HighlightedJson json={selectedLog} />
               </div>
             </div>
-            
+
             <div className="modal-footer">
               <button className="modal-btn secondary" onClick={() => setSelectedLog(null)}>Close</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </motion.div>
   );
@@ -1724,6 +1944,7 @@ function LiveLogs({ onMarkFalsePositive }) {
                 sortedLogs.map((log, index) => {
                   const rowId = log.id || index;
                   const reconstructedCommand = getReconstructedCommand(log);
+                  const isNewLog = index === 0;
 
                   return (
                     <React.Fragment key={rowId}>
@@ -1732,9 +1953,18 @@ function LiveLogs({ onMarkFalsePositive }) {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -4 }}
                         transition={{ duration: 0.2 }}
+                        style={{
+                          background: isNewLog ? 'rgba(0, 212, 255, 0.03)' : 'transparent',
+                          borderLeft: isNewLog ? '3px solid var(--accent-color)' : 'none'
+                        }}
                       >
                         <td style={{ color: '#a1a1aa', whiteSpace: 'nowrap' }}>{log?.timestamp || '-'}</td>
-                        <td style={{ fontFamily: 'monospace', color: '#3b82f6', fontWeight: 500 }}>{log?.client_ip || '-'}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-color)', fontWeight: 600 }}>
+                          <span style={{ marginRight: '6px' }} title={log?.severity}>
+                            {log?.severity === 'Critical' ? '💀' : log?.severity === 'High' ? '🔥' : 'ℹ️'}
+                          </span>
+                          {log?.client_ip || '-'}
+                        </td>
                         <td>
                           <span className={`severity-badge severity-${(log?.severity || 'low').toLowerCase()}`}>
                             {log?.severity || 'Low'}
@@ -1743,13 +1973,20 @@ function LiveLogs({ onMarkFalsePositive }) {
                         <td style={{ fontWeight: 500 }}>{log?.attack_type || '-'}</td>
                         <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>{log?.rule_id || '-'}</td>
                         <td>
-                          <span style={{
-                            color: log?.http_code?.startsWith('2') ? '#10b981' : log?.http_code?.startsWith('3') ? '#3b82f6' : '#ef4444',
-                            fontWeight: 600,
-                            fontFamily: 'monospace'
-                          }}>
-                            {log?.http_code || '-'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div className="pulse-dot" style={{ 
+                              width: '6px',
+                              height: '6px',
+                              backgroundColor: log?.http_code?.startsWith('2') ? 'var(--success-color)' : log?.http_code?.startsWith('3') ? 'var(--accent-color)' : 'var(--danger-color)',
+                            }} />
+                            <span style={{
+                              color: log?.http_code?.startsWith('2') ? 'var(--success-color)' : log?.http_code?.startsWith('3') ? 'var(--accent-color)' : 'var(--danger-color)',
+                              fontWeight: 700,
+                              fontFamily: 'var(--font-mono)'
+                            }}>
+                              {log?.http_code || '-'}
+                            </span>
+                          </div>
                         </td>
                         <td className="payload-cell"
                           onClick={() => toggleExpand(rowId)}
@@ -4872,29 +5109,29 @@ function Settings({ onLogout }) {
         )}
       </AnimatePresence>
 
-            <div className="settings-layout" style={{ display: 'flex', gap: '32px', alignItems: 'flex-start' }}>
-        
+      <div className="settings-layout" style={{ display: 'flex', gap: '32px', alignItems: 'flex-start' }}>
+
         {/* Sidebar Navigation */}
         <div className="settings-sidebar">
-          <div style={{ fontSize: '11px', fontWeight: 600, color: '#71717a', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', paddingLeft: '12px' }}>Configuration</div>
-          
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#71717a', textTransform: 'uppercase', letterSpacing: '1.2px', marginBottom: '10px', paddingLeft: '16px' }}>Configuration</div>
+
           <button onClick={() => setActiveSettingTab('general')} className={`settings-tab-btn ${activeSettingTab === 'general' ? 'active' : ''}`}>
-            <SettingsIcon size={18} /> General Setup
+            <SettingsIcon size={20} /> General Setup
           </button>
           <button onClick={() => setActiveSettingTab('waf')} className={`settings-tab-btn ${activeSettingTab === 'waf' ? 'active' : ''}`}>
-            <ShieldCheck size={18} /> WAF Engine Policies
+            <ShieldCheck size={20} /> WAF Engine Policies
           </button>
           <button onClick={() => setActiveSettingTab('logs')} className={`settings-tab-btn ${activeSettingTab === 'logs' ? 'active' : ''}`}>
-            <Database size={18} /> Log Pipeline
+            <Database size={20} /> Log Pipeline
           </button>
           <button onClick={() => setActiveSettingTab('hardening')} className={`settings-tab-btn ${activeSettingTab === 'hardening' ? 'active' : ''}`}>
-            <Server size={18} /> Server Hardening
+            <Server size={20} /> Server Hardening
           </button>
           <button onClick={() => setActiveSettingTab('defacement')} className={`settings-tab-btn ${activeSettingTab === 'defacement' ? 'active' : ''}`}>
-            <ShieldAlert size={18} /> Anti-Defacement
+            <ShieldAlert size={20} /> Anti-Defacement
           </button>
           <button onClick={() => setActiveSettingTab('security')} className={`settings-tab-btn ${activeSettingTab === 'security' ? 'active' : ''}`}>
-            <Lock size={18} /> Security & Danger Zone
+            <Lock size={20} /> Security & Danger Zone
           </button>
         </div>
 
@@ -4909,7 +5146,7 @@ function Settings({ onLogout }) {
                   General Settings
                 </div>
                 <div className="settings-section-subtitle">Configure dashboard behavior and real-time updates.</div>
-                
+
                 <form onSubmit={handleSaveGeneral} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Dashboard Refresh Interval</label>
@@ -4956,7 +5193,7 @@ function Settings({ onLogout }) {
                   WAF Engine Policies
                 </div>
                 <div className="settings-section-subtitle">Manage ModSecurity ruleset behaviors and blocking modes.</div>
-                
+
                 <form onSubmit={handleSaveWAF} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '13px', color: '#a1a1aa' }}>SecRuleEngine Posture</label>
@@ -5009,7 +5246,7 @@ function Settings({ onLogout }) {
                   Log Pipeline Configuration
                 </div>
                 <div className="settings-section-subtitle">Configure SecAuditEngine and log retention policies.</div>
-                
+
                 <form onSubmit={handleSaveLogs} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -5020,7 +5257,7 @@ function Settings({ onLogout }) {
                       <div className="toggle-knob"></div>
                     </div>
                   </div>
-                  
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Audit Log Structure Formats</label>
                     <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={logFormat} onChange={(e) => setLogFormat(e.target.value)}>
@@ -5028,7 +5265,7 @@ function Settings({ onLogout }) {
                       <option value="Native">ModSecurity Native Audit Structure</option>
                     </select>
                   </div>
-                  
+
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <span style={{ fontSize: '14px', fontWeight: 500, color: '#e4e4e7' }}>Concurrent Multi-Threading</span>
@@ -5038,7 +5275,7 @@ function Settings({ onLogout }) {
                       <div className="toggle-knob"></div>
                     </div>
                   </div>
-                  
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Log Retention Period</label>
                     <select className="filter-select" style={{ width: '100%', padding: '12px', fontSize: '14px' }} value={retention} onChange={(e) => setRetention(e.target.value)}>
@@ -5049,7 +5286,7 @@ function Settings({ onLogout }) {
                       <option value="Forever">Infinite / Log Rotation Disabled</option>
                     </select>
                   </div>
-                  
+
                   <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                     <button type="submit" className="modal-btn primary" style={{ padding: '12px 24px', fontSize: '14px' }}>
                       Update Logging Configuration
@@ -5066,7 +5303,7 @@ function Settings({ onLogout }) {
                   Infrastructure Hardening
                 </div>
                 <div className="settings-section-subtitle">Manage HSTS, server cloaking, and IP restrictions.</div>
-                
+
                 <form onSubmit={handleSaveHardening} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -5144,7 +5381,7 @@ function Settings({ onLogout }) {
                   Anti-Defacement Protection
                 </div>
                 <div className="settings-section-subtitle">Real-time integrity monitoring for critical assets.</div>
-                
+
                 <form onSubmit={handleSaveDefacement} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -5197,13 +5434,13 @@ function Settings({ onLogout }) {
                   Admin Security & Danger Zone
                 </div>
                 <div className="settings-section-subtitle">Manage portal access credentials and system overrides.</div>
-                
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '40px', maxWidth: '600px' }}>
-                  
+
                   {/* Password Form */}
                   <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ fontSize: '15px', fontWeight: 600, color: '#f4f4f5', marginBottom: '8px' }}>Portal Authentication</div>
-                    
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <label style={{ fontSize: '13px', color: '#a1a1aa' }}>Current Admin Password</label>
                       <input type="password" placeholder="••••••••" className="settings-input" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
@@ -5442,9 +5679,10 @@ function App() {
         <motion.div
           style={{ flex: 1, minHeight: 0 }}
           key={activeTab}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.15 }}
+          initial={{ opacity: 0, x: 15 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -15 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
         >
           {activeTab === 'logs' && <LiveLogs key="logs" onMarkFalsePositive={handleTriggerMarkFp} />}
           {activeTab === 'false_positives' && <FalsePositives key="false_positives" userRole={userRole} onCreateException={handleTriggerCreateException} />}

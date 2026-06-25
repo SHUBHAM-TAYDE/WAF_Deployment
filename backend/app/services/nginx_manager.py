@@ -1,11 +1,35 @@
 import os
+import re
 import subprocess
+import ipaddress
 import logging
+import redis
 
 logger = logging.getLogger(__name__)
 
 DDOS_CONF_PATH = "/etc/nginx/conf.d/waf_ddos.conf"
 HARDENING_CONF_PATH = "/etc/nginx/conf.d/waf_hardening.conf"
+
+
+def _sanitize_nginx_pattern(value: str) -> str:
+    """
+    Strips characters that would break NGINX map block structure or allow
+    arbitrary directive injection via user-supplied rate limiting patterns.
+    Removes: { } ; newlines and carriage returns.
+    """
+    return re.sub(r'[{};\'"\n\r]', '', value)
+
+
+def _validate_ip_or_cidr(ip: str) -> bool:
+    """
+    Validates that a string is a valid IPv4/IPv6 address or CIDR network.
+    Returns True if valid, False otherwise.
+    """
+    try:
+        ipaddress.ip_network(ip.strip(), strict=False)
+        return True
+    except ValueError:
+        return False
 
 
 def apply_ddos_settings(settings: dict) -> bool:
@@ -57,14 +81,62 @@ def apply_ddos_settings(settings: dict) -> bool:
             config_lines.append("}")
             config_lines.append("")
 
+        # --- Bot Mitigation ---
+        config_lines.append("# --- Bot Mitigation ---")
+        config_lines.append("map $http_user_agent $is_bad_bot {")
+        config_lines.append("    default 0;")
+        # Malicious crawlers & scrapers
+        config_lines.append('    "~*semrush" 1;')
+        config_lines.append('    "~*ahrefs" 1;')
+        config_lines.append('    "~*mj12bot" 1;')
+        config_lines.append('    "~*dotbot" 1;')
+        config_lines.append('    "~*rogerbot" 1;')
+        config_lines.append('    "~*megaindex" 1;')
+        config_lines.append('    "~*zoominfobot" 1;')
+        config_lines.append('    "~*yandexbot" 1;')
+        config_lines.append('    "~*baiduspider" 1;')
+        config_lines.append('    "~*screaming frog" 1;')
+        # Vulnerability scanners & tools
+        config_lines.append('    "~*sqlmap" 1;')
+        config_lines.append('    "~*nmap" 1;')
+        config_lines.append('    "~*nikto" 1;')
+        config_lines.append('    "~*dirbuster" 1;')
+        config_lines.append('    "~*censys" 1;')
+        config_lines.append('    "~*shodan" 1;')
+        config_lines.append('    "~*netsparker" 1;')
+        config_lines.append('    "~*acunetix" 1;')
+        # Common HTTP client libraries used for botting
+        config_lines.append('    "~*python-requests" 1;')
+        config_lines.append('    "~*pycurl" 1;')
+        config_lines.append('    "~*urllib" 1;')
+        config_lines.append('    "~*wget" 1;')
+        # Empty user-agent or standard hyphen
+        config_lines.append('    "-" 1;')
+        config_lines.append('    "" 1;')
+        config_lines.append("}")
+        config_lines.append("")
+        config_lines.append("map $is_bad_bot $bot_limit_key {")
+        config_lines.append('    0 "";')
+        config_lines.append('    1 "bad_bot_key";')
+        config_lines.append("}")
+        config_lines.append("")
+        # We define a dedicated rate limiting zone for bad bots.
+        # It permits 1 request per minute globally for all bad bots (effectively blocking them completely).
+        config_lines.append("limit_req_zone $bot_limit_key zone=waf_bot_req:10m rate=1r/m;")
+        config_lines.append("")
+
         # We always define the $limit_key variable.
         # If trusted_ips exist, it is dynamic. If not, it is equivalent to $binary_remote_addr.
         if trusted_ips:
             config_lines.append("geo $limit {")
             config_lines.append("    default 1;")
             for ip in trusted_ips:
-                if ip.strip():
-                    config_lines.append(f"    {ip.strip()} 0;")
+                ip = ip.strip()
+                if ip:
+                    if not _validate_ip_or_cidr(ip):
+                        logger.warning(f"Skipping invalid IP/CIDR in trusted list: '{ip}'")
+                        continue
+                    config_lines.append(f"    {ip} 0;")
             config_lines.append("}")
             config_lines.append("")
             config_lines.append("map $limit $limit_key {")
@@ -88,6 +160,9 @@ def apply_ddos_settings(settings: dict) -> bool:
         config_lines.append(
             f"limit_req zone=waf_ddos_req burst={burst_tolerance} nodelay;"
         )
+        # Apply bot mitigation rate-limiting globally
+        config_lines.append("limit_req zone=waf_bot_req burst=0 nodelay;")
+        config_lines.append("")
 
         # Connection limiting
         config_lines.append(f"limit_conn_zone {zone_key} zone=waf_ddos_conn:10m;")
@@ -152,15 +227,23 @@ def apply_ddos_settings(settings: dict) -> bool:
 
                     nginx_var = "$http_" + header_name.lower().replace("-", "_")
 
-                # Escape double quotes inside the parameter value to avoid NGINX parse errors
-                clean_value = param_value.replace('"', '\\"')
+                # Sanitize pattern to prevent NGINX config injection
+                # Strip characters that can break NGINX map block structure
+                clean_value = _sanitize_nginx_pattern(param_value)
+                if not clean_value:
+                    logger.warning(f"Skipping rule '{rule_name}': pattern is empty after sanitization.")
+                    continue
 
                 config_lines.append(
                     f"# Rule: {rule_name} (Type: {param_type}, Match: {param_value})"
                 )
                 config_lines.append(f"map {nginx_var} $limit_key_{rule_id} {{")
                 # Map to $limit_key (so trusted IPs automatically bypass this check)
-                config_lines.append(f'    "~*{clean_value}" {zone_key};')
+                # If param_type is Country, IP or numeric ISP/ASN, anchor matching with ^...$ to prevent substring matching
+                if param_type in ("Country", "IP") or (param_type == "ISP/ASN" and param_value.strip().isdigit()):
+                    config_lines.append(f'    "~*^{clean_value}$" {zone_key};')
+                else:
+                    config_lines.append(f'    "~*{clean_value}" {zone_key};')
                 config_lines.append('    default "";')
                 config_lines.append("}")
                 config_lines.append(
@@ -217,16 +300,59 @@ def disable_ddos_mitigation() -> bool:
         return False
 
 
+def get_redis_client():
+    return redis.Redis(
+        host="localhost",
+        port=6379,
+        password="YourSecureRedisPassword123!",
+        socket_timeout=1.0,
+        socket_connect_timeout=1.0
+    )
+
+
 def apply_hardening_settings(settings: dict) -> bool:
     """
-    Generates NGINX hardening and IP ACL configuration based on the provided settings
-    and reloads NGINX to apply them.
+    Generates NGINX hardening configuration (server_tokens) and stores whitelisted/blacklisted
+    IPs dynamically in Redis to enable zero-reload IP blocking.
     """
     try:
         server_cloaking = settings.get("server_cloaking", True)
         ip_blacklist = settings.get("ip_blacklist", [])
         ip_whitelist = settings.get("ip_whitelist", [])
 
+        # 1. Update dynamic IP Whitelist/Blacklist in Redis
+        r = get_redis_client()
+        
+        # Flush previous keys
+        r.delete("waf:whitelist", "waf:whitelist:cidrs", "waf:blacklist", "waf:blacklist:cidrs")
+        
+        # Add whitelist
+        for ip in ip_whitelist:
+            ip = ip.strip()
+            if ip:
+                if not _validate_ip_or_cidr(ip):
+                    logger.warning(f"Skipping invalid IP/CIDR in whitelist: '{ip}'")
+                    continue
+                if "/" in ip:
+                    r.sadd("waf:whitelist:cidrs", ip)
+                else:
+                    r.sadd("waf:whitelist", ip)
+
+        # Add blacklist
+        for ip in ip_blacklist:
+            ip = ip.strip()
+            if ip:
+                if not _validate_ip_or_cidr(ip):
+                    logger.warning(f"Skipping invalid IP/CIDR in blacklist: '{ip}'")
+                    continue
+                if "/" in ip:
+                    r.sadd("waf:blacklist:cidrs", ip)
+                else:
+                    r.sadd("waf:blacklist", ip)
+
+        logger.info("Successfully updated dynamic WAF IP whitelist/blacklist in Redis.")
+
+        # 2. Write server_tokens configuration to files
         config_lines = [
             "# Auto-generated by CyberSentinel WAF GUI",
             "# Do not edit manually",
@@ -239,24 +365,17 @@ def apply_hardening_settings(settings: dict) -> bool:
             config_lines.append("server_tokens on;")
 
         config_lines.append("")
-
-        # 1. Write Whitelist allow directives
-        if ip_whitelist:
-            config_lines.append("# IP Whitelist Rules")
-            for ip in ip_whitelist:
-                if ip.strip():
-                    config_lines.append(f"allow {ip.strip()};")
-            config_lines.append("")
-
-        # 2. Write Blacklist deny directives
-        if ip_blacklist:
-            config_lines.append("# IP Blacklist Rules")
-            for ip in ip_blacklist:
-                if ip.strip():
-                    config_lines.append(f"deny {ip.strip()};")
-            config_lines.append("")
-
         config_content = "\n".join(config_lines) + "\n"
+
+        # Check if config content changed before writing and reloading to achieve zero-reload IP blocking
+        existing_content = ""
+        if os.path.exists(HARDENING_CONF_PATH):
+            with open(HARDENING_CONF_PATH, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+
+        if existing_content == config_content:
+            logger.info("NGINX hardening config (server_tokens) is unchanged. Skipping NGINX reload.")
+            return True
 
         with open(HARDENING_CONF_PATH, "w", encoding="utf-8") as f:
             f.write(config_content)
@@ -271,8 +390,12 @@ def apply_hardening_settings(settings: dict) -> bool:
 
 
 def disable_hardening() -> bool:
-    """Removes the hardening configuration and reloads NGINX."""
+    """Removes the hardening configuration, clears Redis IP sets, and reloads NGINX."""
     try:
+        r = get_redis_client()
+        r.delete("waf:whitelist", "waf:whitelist:cidrs", "waf:blacklist", "waf:blacklist:cidrs")
+        logger.info("Cleared WAF IP Whitelist and Blacklist sets in Redis.")
+
         if os.path.exists(HARDENING_CONF_PATH):
             os.remove(HARDENING_CONF_PATH)
             logger.info(f"Removed {HARDENING_CONF_PATH}")

@@ -25,7 +25,8 @@ export default function DdosBotMitigation() {
   const [analytics, setAnalytics] = useState({
     timeline: [],
     top_ips: [],
-    total_blocks: 0
+    total_blocks: 0,
+    total_unique_ips: 0
   });
 
   const fetchSettings = async () => {
@@ -116,7 +117,8 @@ export default function DdosBotMitigation() {
       return;
     }
     const newRule = {
-      id: "rule_" + Date.now(),
+      // FIX 12: Prevent ID collision with random suffix on fast-add
+      id: "rule_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5),
       name: newRuleName.trim(),
       parameter_type: newRuleType,
       parameter_value: newRuleValue.trim(),
@@ -248,7 +250,10 @@ export default function DdosBotMitigation() {
             >
               <option value="Silent Drop">Silent Drop (Connection Reset / 444)</option>
               <option value="Block">Standard Block (429 Too Many Requests)</option>
-              <option value="CAPTCHA Challenge">Simulated CAPTCHA Challenge</option>
+              {/* FIX 7: CAPTCHA is not integrated — disable to avoid misleading operators */}
+              <option value="CAPTCHA Challenge" disabled>
+                CAPTCHA Challenge (Coming Soon — requires provider integration)
+              </option>
             </select>
           </div>
 
@@ -280,9 +285,10 @@ export default function DdosBotMitigation() {
               <span>Unique Blocked IPs</span>
               <div className="metric-icon-wrapper orange"><Server size={18} /></div>
             </div>
-            <div className="metric-value" style={{ color: '#fb923c' }}>{analytics.top_ips.length}</div>
+            {/* FIX 11: Show true total from backend, not top_ips.length (capped at 10) */}
+            <div className="metric-value" style={{ color: '#fb923c' }}>{analytics.total_unique_ips.toLocaleString()}</div>
             <div className="metric-trend trend-down">
-              <span>Origin tracking</span>
+              <span>Distinct offenders tracked</span>
             </div>
           </div>
         </div>

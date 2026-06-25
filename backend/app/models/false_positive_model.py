@@ -27,6 +27,7 @@ class FalsePositiveResponse(BaseModel):
     status: str
     analyst_note: str
     raw_log: Dict[str, Any]
+    created_by: str = "system"
 
     class Config:
         from_attributes = True

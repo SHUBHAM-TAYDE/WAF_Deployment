@@ -2,6 +2,8 @@ import os
 import pickle
 import logging
 import sqlite3
+import json
+import requests
 from fastapi import FastAPI, BackgroundTasks, Response, status
 from pydantic import BaseModel, Field
 
@@ -58,16 +60,25 @@ def init_sqlite_db():
                 xgb_prob REAL,
                 iso_score REAL,
                 threat_score REAL,
-                decision TEXT
+                decision TEXT,
+                abuse_score REAL DEFAULT 0.0
             )
         """)
         conn.commit()
+        
+        # Dynamic schema update for existing tables
+        try:
+            cursor.execute("SELECT abuse_score FROM ml_events LIMIT 1;")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE ml_events ADD COLUMN abuse_score REAL DEFAULT 0.0;")
+            conn.commit()
+            
         conn.close()
         try:
             os.chmod(DB_PATH, 0o666)
         except Exception:
             pass
-        logger.info("Successfully initialized ML events SQLite database.")
+        logger.info("Successfully initialized ML events SQLite database with abuse_score column.")
     except Exception as e:
         logger.error(f"Failed to initialize SQLite database: {e}")
 
@@ -96,8 +107,8 @@ def write_to_sqlite(event: dict):
         cursor.execute("""
             INSERT INTO ml_events (
                 crs_score, matched_vars, uri, args, method, body_len, ct, ua, remote_addr,
-                redis_rpm, redis_rep, xgb_prob, iso_score, threat_score, decision
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                redis_rpm, redis_rep, xgb_prob, iso_score, threat_score, decision, abuse_score
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             event.get("crs_score", 0.0),
             event.get("matched_vars", ""),
@@ -113,7 +124,8 @@ def write_to_sqlite(event: dict):
             event.get("xgb_prob", 0.0),
             event.get("iso_score", 0.0),
             event.get("threat_score", 0.0),
-            event.get("decision", "")
+            event.get("decision", ""),
+            event.get("abuse_score", 0.0)
         ))
         conn.commit()
         conn.close()
@@ -125,6 +137,57 @@ def health_check():
     """Service health state endpoint."""
     return {"status": "healthy", "models_loaded": True}
 
+SETTINGS_PATH = "/opt/ModSecurity/WAF_GUI/backend/app/config/settings.json"
+
+def fetch_abuseipdb_score(ip: str):
+    """
+    Asynchronous background task to fetch IP reputation from AbuseIPDB API
+    and cache the result in Redis. Skipped for internal subnet scopes.
+    """
+    # Exclude internal / RFC1918 IPs
+    if ip in ("127.0.0.1", "localhost", "::1") or ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172."):
+        redis_features.save_abuse_score(ip, 0.0)
+        return
+
+    try:
+        if not os.path.exists(SETTINGS_PATH):
+            logger.warning(f"Settings JSON not found at {SETTINGS_PATH}. Cannot query AbuseIPDB.")
+            return
+
+        with open(SETTINGS_PATH, "r") as f:
+            settings = json.load(f)
+        
+        abuse_cfg = settings.get("abuseipdb", {})
+        if not abuse_cfg.get("enabled", False):
+            return
+            
+        api_key = abuse_cfg.get("api_key", "")
+        if not api_key:
+            logger.warning("AbuseIPDB API key missing in settings configuration.")
+            return
+
+        url = "https://api.abuseipdb.com/api/v2/check"
+        headers = {
+            "Accept": "application/json",
+            "Key": api_key
+        }
+        params = {
+            "ipAddress": ip,
+            "maxAgeInDays": "90"
+        }
+        
+        # Safe timeout to avoid blocking resources
+        response = requests.get(url, headers=headers, params=params, timeout=5.0)
+        if response.status_code == 200:
+            res_json = response.json()
+            score = float(res_json.get("data", {}).get("abuseConfidenceScore", 0.0))
+            redis_features.save_abuse_score(ip, score)
+            logger.info(f"Successfully fetched and cached AbuseIPDB score for IP {ip}: {score}%")
+        else:
+            logger.warning(f"AbuseIPDB request failed for IP {ip}: HTTP {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error querying AbuseIPDB for IP {ip}: {e}")
+
 @app.post("/predict")
 def predict(payload: RequestTelemetry, background_tasks: BackgroundTasks, response: Response):
     """
@@ -135,7 +198,12 @@ def predict(payload: RequestTelemetry, background_tasks: BackgroundTasks, respon
     ip = payload.remote_addr or "unknown"
     
     # 1. Fetch live Redis behavioral telemetry
-    redis_rpm, redis_rep = redis_features.get_redis_metrics(ip)
+    redis_rpm, redis_rep, abuse_score = redis_features.get_redis_metrics(ip)
+    
+    # Trigger background intelligence check on cache miss
+    if abuse_score is None:
+        background_tasks.add_task(fetch_abuseipdb_score, ip)
+        abuse_score = 0.0 # Default to clean for the current request
     
     # 2. Map payload telemetry to data dictionary for the feature pipeline
     data_map = payload.model_dump()
@@ -163,7 +231,7 @@ def predict(payload: RequestTelemetry, background_tasks: BackgroundTasks, respon
         return {"decision": "allow", "threat_score": 0.0}
 
     # 5. Calculate normalized combined threat score
-    score = threat_score.calculate_threat_score(payload.crs_score, xgb_prob, iso_score, redis_rep)
+    score = threat_score.calculate_threat_score(payload.crs_score, xgb_prob, iso_score, redis_rep, abuse_score)
     decision = threat_score.get_routing_outcome(score, payload.crs_score)
 
     # 6. Update Redis behavioral metrics and IP reputation counters based on outcome
@@ -194,7 +262,8 @@ def predict(payload: RequestTelemetry, background_tasks: BackgroundTasks, respon
         "xgb_prob": xgb_prob,
         "iso_score": iso_score,
         "threat_score": score,
-        "decision": decision
+        "decision": decision,
+        "abuse_score": abuse_score
     }
     background_tasks.add_task(write_to_sqlite, event_data)
 

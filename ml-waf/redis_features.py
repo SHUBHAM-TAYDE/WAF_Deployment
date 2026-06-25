@@ -73,16 +73,27 @@ def decay_reputation(ip: str):
     except redis.RedisError as e:
         logger.warning(f"Redis reputation decay failed for IP {ip}: {e}")
 
-def get_redis_metrics(ip: str) -> tuple[float, float]:
+def save_abuse_score(ip: str, score: float):
     """
-    Retrieves the 1-minute request rate (rpm) and threat reputation (rep) in a single pipeline.
-    Clamps reputation at 0.0. If Redis connection drops or times out, defaults silently to 0.0.
+    Caches the AbuseIPDB abuse score in Redis with a 24-hour TTL (86400s).
+    """
+    try:
+        r.setex(f"abuse:{ip}", 86400, float(score))
+    except redis.RedisError as e:
+        logger.warning(f"Failed to cache abuse score for IP {ip}: {e}")
+
+def get_redis_metrics(ip: str) -> tuple[float, float, any]:
+    """
+    Retrieves the 1-minute request rate (rpm), threat reputation (rep), and cached abuse score
+    in a single pipeline. Clamps reputation at 0.0. If Redis connection drops or times out,
+    defaults metrics to 0.0 and returns None for abuse score.
     """
     try:
         pipe = r.pipeline()
         pipe.get(f"rpm:{ip}")
         pipe.get(f"rep:{ip}")
-        rpm_val, rep_val = pipe.execute()
+        pipe.get(f"abuse:{ip}")
+        rpm_val, rep_val, abuse_val = pipe.execute()
         
         rpm = float(rpm_val) if rpm_val is not None else 0.0
         rep = float(rep_val) if rep_val is not None else 0.0
@@ -93,8 +104,9 @@ def get_redis_metrics(ip: str) -> tuple[float, float]:
             r.expire(f"rep:{ip}", 86400)
             rep = 0.0
             
-        return rpm, rep
+        abuse_score = float(abuse_val) if abuse_val is not None else None
+        return rpm, rep, abuse_score
     except (redis.RedisError, ValueError, TypeError) as e:
         # Silently degrade to zero scores to avoid breaking WAF request processing
         logger.warning(f"Redis metrics fetch failed for IP {ip}. Defaulting to 0.0. Error: {e}")
-        return 0.0, 0.0
+        return 0.0, 0.0, None

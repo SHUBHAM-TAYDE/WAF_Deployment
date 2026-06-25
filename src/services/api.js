@@ -652,9 +652,12 @@ export async function updateFalsePositiveNote(id, analystNote) {
  */
 export async function deleteFalsePositive(id) {
   try {
-    const response = await fetch(`${BASE_URL}/false-positives/${id}/delete`, {
-      method: 'POST'
+    // FIX 3: Use proper HTTP DELETE method
+    const response = await fetch(`${BASE_URL}/false-positives/${id}`, {
+      method: 'DELETE'
     });
+    // 204 No Content — no JSON body to parse
+    if (response.status === 204) return { success: true };
     return await handleResponse(response);
   } catch (error) {
     console.error(`Failed to delete false positive ${id}:`, error);
@@ -753,9 +756,12 @@ export async function updateExclusionNote(id, notes) {
  */
 export async function deleteExclusion(id) {
   try {
-    const response = await fetch(`${BASE_URL}/exclusions/${id}/delete`, {
-      method: 'POST'
+    // FIX 3: Use proper HTTP DELETE method
+    const response = await fetch(`${BASE_URL}/exclusions/${id}`, {
+      method: 'DELETE'
     });
+    // 204 No Content — no JSON body to parse
+    if (response.status === 204) return { success: true };
     return await handleResponse(response);
   } catch (error) {
     console.error(`Failed to delete exclusion ${id}:`, error);

@@ -23,7 +23,7 @@ MODELS_DIR="${ML_DIR}/models"
 BACKUP_DIR="${ML_DIR}/models/backups"
 LOG_DIR="${ML_DIR}/logs"
 LOG_FILE="${LOG_DIR}/retrain.log"
-HEALTH_URL="http://127.0.0.1:8003/health"
+UDS_SOCKET="/opt/ModSecurity/WAF_GUI/ml-waf/run/ml_waf.sock"
 SERVICE_NAME="ml-waf"
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 
@@ -123,15 +123,15 @@ success "${SERVICE_NAME} service restarted."
 log "Waiting 5 seconds for service to initialize..."
 sleep 5
 
-log "Checking health endpoint: ${HEALTH_URL}"
-HTTP_STATUS=$(curl -s -o /tmp/health_response.json -w "%{http_code}" --max-time 10 "$HEALTH_URL" 2>/dev/null || echo "000")
+log "Checking health endpoint over socket: ${UDS_SOCKET}"
+HTTP_STATUS=$(curl -s -o /tmp/health_response.json --unix-socket "$UDS_SOCKET" -w "%{http_code}" --max-time 10 "http://localhost/health" 2>/dev/null || echo "000")
 
 if [ "$HTTP_STATUS" = "200" ]; then
     HEALTH_BODY=$(cat /tmp/health_response.json 2>/dev/null || echo "{}")
     success "Health check passed (HTTP ${HTTP_STATUS}): ${HEALTH_BODY}"
 else
     warn "Health check returned HTTP ${HTTP_STATUS}. Service may still be starting."
-    warn "Check manually: curl ${HEALTH_URL}"
+    warn "Check manually: curl --unix-socket ${UDS_SOCKET} http://localhost/health"
 fi
 
 # --- Done ---

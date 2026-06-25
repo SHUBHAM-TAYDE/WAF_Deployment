@@ -35,9 +35,15 @@ def init_db():
                     attack_type TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'Pending',
                     analyst_note TEXT DEFAULT '',
-                    raw_log TEXT NOT NULL
+                    raw_log TEXT NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT 'system'
                 )
             """)
+            # Add created_by column to existing tables that lack it (migration)
+            try:
+                cursor.execute("ALTER TABLE false_positives ADD COLUMN created_by TEXT NOT NULL DEFAULT 'system'")
+            except Exception:
+                pass  # Column already exists — expected on fresh installs
 
             # 2. Exclusions table
             cursor.execute("""
@@ -131,14 +137,15 @@ def create_false_positive(
     attack_type: str,
     analyst_note: str,
     raw_log: str,
+    created_by: str = "system",
 ):
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO false_positives (log_id, rule_id, client_ip, uri, timestamp, severity, attack_type, analyst_note, raw_log)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO false_positives (log_id, rule_id, client_ip, uri, timestamp, severity, attack_type, analyst_note, raw_log, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     log_id,
@@ -150,6 +157,7 @@ def create_false_positive(
                     attack_type,
                     analyst_note,
                     raw_log,
+                    created_by,
                 ),
             )
             conn.commit()
@@ -305,6 +313,41 @@ def create_exclusion(
     except Exception as e:
         logger.error(f"Error creating exclusion: {e}")
         return None
+
+
+def get_next_exclusion_sequence_id() -> int:
+    """
+    Returns the next safe, monotonically-increasing sequence integer for use
+    in generating unique ModSecurity SecRule IDs.
+
+    Uses SQLite's internal sqlite_sequence table which tracks the last
+    AUTOINCREMENT value for a table. This value NEVER decreases or reuses
+    deleted row IDs — making it safe for generating unique ModSecurity rule IDs
+    even when exclusions are created and deleted repeatedly.
+
+    Falls back to a timestamp-based fallback to ensure uniqueness even if
+    the exclusions table has never had a row inserted yet.
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            # sqlite_sequence only exists after the first AUTOINCREMENT insert
+            cursor.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'exclusions'"
+            )
+            row = cursor.fetchone()
+            if row:
+                return int(row[0]) + 1
+            # Table exists but no rows ever inserted — use 1
+            return 1
+    except Exception as e:
+        logger.warning(
+            f"Could not read sqlite_sequence for exclusions: {e}. Using timestamp fallback."
+        )
+        # Fallback: use last 7 digits of unix timestamp for uniqueness
+        import time
+        return int(time.time()) % 9_000_000 + 1_000_000
+
 
 
 def get_all_exclusions(status=None, search=None):

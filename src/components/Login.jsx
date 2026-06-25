@@ -1,7 +1,197 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Lock, Activity, Eye, EyeOff, Server, ShieldCheck, LayoutDashboard, TerminalSquare } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Lock, Activity, Eye, EyeOff, Server, ShieldCheck, LayoutDashboard, TerminalSquare, Shield, Zap, Brain, Globe } from 'lucide-react';
 
+/* ─── Animated Particle Network Canvas ──────────────────── */
+function ParticleCanvas() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animId;
+    let W = canvas.width = canvas.offsetWidth;
+    let H = canvas.height = canvas.offsetHeight;
+
+    const PARTICLE_COUNT = 60;
+    const CONNECTION_DIST = 140;
+
+    const particles = Array.from({ length: PARTICLE_COUNT }, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      r: Math.random() * 2 + 1,
+      pulse: Math.random() * Math.PI * 2,
+      color: Math.random() > 0.7
+        ? 'rgba(0,255,157,'
+        : Math.random() > 0.4
+          ? 'rgba(0,212,255,'
+          : 'rgba(191,90,242,',
+    }));
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Update positions
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.pulse += 0.02;
+        if (p.x < 0 || p.x > W) p.vx *= -1;
+        if (p.y < 0 || p.y > H) p.vy *= -1;
+      });
+
+      // Draw connections
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < CONNECTION_DIST) {
+            const alpha = (1 - dist / CONNECTION_DIST) * 0.35;
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(0,212,255,${alpha})`;
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Draw particles
+      particles.forEach(p => {
+        const pulseFactor = 0.8 + Math.sin(p.pulse) * 0.3;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * pulseFactor, 0, Math.PI * 2);
+        ctx.fillStyle = `${p.color}${0.7 + Math.sin(p.pulse) * 0.3})`;
+        ctx.fill();
+
+        // Glow
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * pulseFactor * 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = `${p.color}0.08)`;
+        ctx.fill();
+      });
+
+      animId = requestAnimationFrame(draw);
+    }
+
+    const onResize = () => {
+      W = canvas.width = canvas.offsetWidth;
+      H = canvas.height = canvas.offsetHeight;
+    };
+    window.addEventListener('resize', onResize);
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        zIndex: 2,
+        pointerEvents: 'none',
+      }}
+    />
+  );
+}
+
+/* ─── Typing Animation Text ─────────────────────────────── */
+function TypingText({ text, speed = 60 }) {
+  const [displayed, setDisplayed] = useState('');
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      setDisplayed(text.slice(0, i));
+      if (i >= text.length) {
+        clearInterval(interval);
+        setDone(true);
+      }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, speed]);
+
+  return (
+    <span>
+      {displayed}
+      {!done && (
+        <span style={{
+          display: 'inline-block',
+          width: '2px',
+          height: '1em',
+          background: 'var(--accent-color)',
+          marginLeft: '2px',
+          verticalAlign: 'middle',
+          animation: 'dangerPulse 0.8s infinite',
+          borderRadius: '1px',
+        }} />
+      )}
+    </span>
+  );
+}
+
+/* ─── Live Threat Counter ───────────────────────────────── */
+function ThreatCounter() {
+  const [count, setCount] = useState(1_842_390);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCount(c => c + Math.floor(Math.random() * 5) + 1);
+    }, 800);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      padding: '20px 28px',
+      background: 'rgba(255,59,92,0.06)',
+      border: '1px solid rgba(255,59,92,0.18)',
+      borderRadius: '12px',
+      marginBottom: '28px',
+    }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: '38px',
+        fontWeight: 700,
+        color: 'var(--danger-color)',
+        textShadow: '0 0 20px rgba(255,59,92,0.5)',
+        letterSpacing: '-1px',
+        lineHeight: 1,
+      }}>
+        {count.toLocaleString()}
+      </div>
+      <div style={{
+        fontSize: '12px',
+        color: 'rgba(255,59,92,0.7)',
+        fontFamily: 'var(--font-mono)',
+        textTransform: 'uppercase',
+        letterSpacing: '1.5px',
+        marginTop: '6px',
+      }}>
+        ▲ Global Threats Neutralized Today
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main Login Component ───────────────────────────────── */
 const Login = ({ setAuth }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -17,129 +207,176 @@ const Login = ({ setAuth }) => {
     try {
       const response = await fetch(`http://${window.location.host}/api/auth/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          username: username,
-          password: password,
-        }),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username, password }),
       });
 
-      if (!response.ok) {
-        throw new Error('Invalid credentials');
-      }
+      if (!response.ok) throw new Error('Invalid credentials');
 
       const data = await response.json();
       localStorage.setItem('waf_token', data.access_token);
       setAuth(true);
     } catch (err) {
-      setError(err.message || 'Login failed. Please try again.');
+      setError(err.message || 'Authentication failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const features = [
+    { icon: Activity,       color: 'blue',   title: 'Real-Time Monitoring',    desc: 'Live attack detection & tracking' },
+    { icon: Brain,          color: 'purple', title: 'ML Threat Engine',         desc: 'XGBoost + Isolation Forest' },
+    { icon: ShieldCheck,    color: 'green',  title: 'OWASP CRS v4',             desc: 'Industry-standard rule set' },
+    { icon: Globe,          color: 'orange', title: 'AbuseIPDB Intelligence',   desc: 'Global IP reputation feed' },
+  ];
+
+  const systemStatus = [
+    { label: 'WAF Engine',     color: 'var(--success-color)' },
+    { label: 'ModSecurity',    color: 'var(--success-color)' },
+    { label: 'ML Inference',   color: 'var(--accent-color)'  },
+  ];
+
   return (
     <div className="login-container">
-      {/* Left Panel: Showcase */}
+
+      {/* ── Left Showcase Panel ─────────────────────────── */}
       <div className="login-showcase">
+        {/* Animated backgrounds */}
+        <div className="cyber-grid" />
+        <div className="glow-sphere sphere-1" />
+        <div className="glow-sphere sphere-2" />
+        <div className="glow-sphere sphere-3" />
+        <ParticleCanvas />
+
         <div className="showcase-content">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.7 }}
           >
-            <div className="login-brand" style={{ marginBottom: '32px' }}>
-              <img src="/Cybersentinel.png" alt="CyberSentinel" style={{ maxWidth: '100%', height: 'auto', maxHeight: '120px', objectFit: 'contain' }} className="brand-icon-large" />
+            {/* Logo */}
+            <div className="login-brand">
+              <motion.img
+                src="/Cybersentinel.png"
+                alt="CyberSentinel"
+                className="brand-icon-large"
+                style={{ maxHeight: '80px', objectFit: 'contain' }}
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.6, delay: 0.1 }}
+              />
             </div>
-            <p className="brand-subtitle">Enterprise Web Application Firewall & Threat Monitoring Platform</p>
+
+            <h1 className="brand-title" style={{ marginBottom: '8px' }}>
+              CyberSentinel
+            </h1>
+            <p className="brand-subtitle">
+              Enterprise WAF & Threat Intelligence Platform
+            </p>
             <p className="brand-description">
-              A modern WAF platform providing real-time protection against SQL Injection, XSS, RCE, protocol violations, bots, and OWASP Top 10 attacks using ModSecurity and OWASP CRS.
+              Military-grade web application firewall powered by ML inference,
+              OWASP CRS 4, and real-time threat intelligence. Protecting against
+              SQL Injection, XSS, RCE, protocol violations, and OWASP Top 10.
             </p>
           </motion.div>
 
+          {/* Live counter */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+          >
+            <ThreatCounter />
+          </motion.div>
+
+          {/* Feature Grid */}
           <div className="feature-grid">
-            <motion.div className="feature-card" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
-              <Activity size={24} className="feature-icon blue" />
-              <div>
-                <h3>Real-Time Monitoring</h3>
-                <p>Live attack detection and tracking</p>
-              </div>
-            </motion.div>
-            <motion.div className="feature-card" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }}>
-              <LayoutDashboard size={24} className="feature-icon orange" />
-              <div>
-                <h3>Security Analytics</h3>
-                <p>Advanced dashboard and metrics</p>
-              </div>
-            </motion.div>
-            <motion.div className="feature-card" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }}>
-              <ShieldCheck size={24} className="feature-icon green" />
-              <div>
-                <h3>OWASP CRS Integrations</h3>
-                <p>Industry-standard core rule set</p>
-              </div>
-            </motion.div>
-            <motion.div className="feature-card" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 }}>
-              <TerminalSquare size={24} className="feature-icon purple" />
-              <div>
-                <h3>Live WAF Logs</h3>
-                <p>Deep packet and log inspection</p>
-              </div>
-            </motion.div>
+            {features.map((f, i) => {
+              const Icon = f.icon;
+              return (
+                <motion.div
+                  key={f.title}
+                  className="feature-card"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.35 + i * 0.08 }}
+                >
+                  <Icon size={22} className={`feature-icon ${f.color}`} />
+                  <div>
+                    <h3>{f.title}</h3>
+                    <p>{f.desc}</p>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
 
-          <motion.div className="system-status-panel" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
-            <div className="status-item">
-              <span className="pulse-dot green"></span> WAF Active
-            </div>
-            <div className="status-item">
-              <span className="pulse-dot green"></span> ModSecurity Running
-            </div>
-            <div className="status-item">
-              <span className="pulse-dot blue"></span> OWASP CRS Loaded
-            </div>
+          {/* System Status */}
+          <motion.div
+            className="system-status-panel"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.7 }}
+          >
+            {systemStatus.map(s => (
+              <div key={s.label} className="status-item">
+                <div style={{
+                  width: '8px', height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: s.color,
+                  boxShadow: `0 0 8px ${s.color}`,
+                  animation: 'pulseGlow 1.8s ease-in-out infinite',
+                }} />
+                {s.label}
+              </div>
+            ))}
           </motion.div>
         </div>
-
-        {/* Animated Background Elements */}
-        <div className="cyber-grid"></div>
-        <div className="glow-sphere sphere-1"></div>
-        <div className="glow-sphere sphere-2"></div>
       </div>
 
-      {/* Right Panel: Login Form */}
+      {/* ── Right Login Panel ────────────────────────────── */}
       <div className="login-form-wrapper">
         <motion.div
-          className="login-card glass-panel"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4, delay: 0.2 }}
+          className="login-card"
+          initial={{ opacity: 0, scale: 0.94, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.2 }}
         >
           <div className="login-card-header">
-            <Lock size={28} className="auth-icon" />
-            <h2>Secure Access</h2>
+            <div className="auth-icon">
+              <Lock size={26} />
+            </div>
+            <h2>
+              <TypingText text="Secure Access" speed={65} />
+            </h2>
             <p>Authenticate to access the SOC dashboard</p>
           </div>
 
-          {error && (
-            <motion.div className="login-error" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
-              {error}
-            </motion.div>
-          )}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                className="login-error"
+                initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                animate={{ opacity: 1, height: 'auto', marginBottom: 20 }}
+                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+              >
+                ⚠ {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <form onSubmit={handleLogin} className="login-form">
             <div className="form-group">
               <label htmlFor="username">Admin Identity</label>
               <div className="input-with-icon">
-                <Server size={18} className="input-icon" />
+                <Server size={16} className="input-icon" />
                 <input
                   id="username"
                   type="text"
                   placeholder="Enter username"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={e => setUsername(e.target.value)}
+                  autoComplete="username"
                   required
                 />
               </div>
@@ -148,21 +385,23 @@ const Login = ({ setAuth }) => {
             <div className="form-group">
               <label htmlFor="password">Authentication Key</label>
               <div className="input-with-icon">
-                <Lock size={18} className="input-icon" />
+                <Lock size={16} className="input-icon" />
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="Enter password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={e => setPassword(e.target.value)}
+                  autoComplete="current-password"
                   required
                 />
                 <button
                   type="button"
                   className="password-toggle"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowPassword(s => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
@@ -171,44 +410,51 @@ const Login = ({ setAuth }) => {
               type="submit"
               className={`login-btn ${loading ? 'loading' : ''}`}
               disabled={loading}
+              id="login-submit-btn"
             >
               {loading ? (
                 <>
-                  <Activity className="animate-spin" size={18} /> Authenticating...
+                  <Activity className="animate-spin" size={17} />
+                  Authenticating...
                 </>
               ) : (
-                'Initialize Session'
+                <>
+                  <Zap size={17} />
+                  Initialize Session
+                </>
               )}
             </button>
           </form>
 
           <div className="login-footer">
             <p>Unauthorized access is strictly prohibited and monitored.</p>
-            <p>Demo Credentials: admin / admin123</p>
+            <p style={{ color: 'rgba(0,212,255,0.4)', marginTop: '6px' }}>
+              Demo: admin / admin123
+            </p>
           </div>
         </motion.div>
       </div>
 
+      {/* Footer Bar */}
       <div className="login-footer-bar">
         <div className="footer-left">
-          <img src="/logo.png" alt="Virtual Galaxy" className="footer-logo" />
-          <div className="footer-divider"></div>
+          <img src="/Virtual_logo.png" alt="Virtual Galaxy" className="footer-logo" />
+          <div className="footer-divider" />
           <span>Information Technology Services Management</span>
         </div>
-
         <div className="footer-center">
-          <span>&copy; 2026 Virtual Galaxy Ltd. All Rights Reserved.</span>
+          <span>© 2026 Virtual Galaxy Ltd. All Rights Reserved.</span>
         </div>
-
         <div className="footer-right">
-          <span>Version 1.0</span>
-          <div className="footer-divider"></div>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-color)' }}>
+            v2.0.0-2026
+          </span>
+          <div className="footer-divider" />
           <a href="#support">Support</a>
-          <div className="footer-divider"></div>
+          <div className="footer-divider" />
           <a href="#privacy">Privacy Policy</a>
         </div>
       </div>
-
     </div>
   );
 };

@@ -36,7 +36,42 @@ def get_top_ips(limit: int = 10) -> List[Dict[str, Any]]:
     logs = get_all_logs()
     ips = [log.client_ip for log in logs if log.client_ip]
     most_common = Counter(ips).most_common(limit)
-    return [{"ip": ip, "count": count} for ip, count in most_common]
+    
+    # Map IPs to country code from logs
+    ip_to_country = {}
+    for log in logs:
+        if log.client_ip and log.country:
+            ip_to_country[log.client_ip] = log.country
+            
+    # Connect to Redis to fetch AbuseIPDB scores
+    import redis
+    r = redis.Redis(
+        host="localhost",
+        port=6379,
+        password="YourSecureRedisPassword123!",
+        socket_timeout=1.0,
+        socket_connect_timeout=1.0
+    )
+    
+    result = []
+    for ip, count in most_common:
+        country = ip_to_country.get(ip, "Unknown")
+        abuse_score = 0.0
+        try:
+            val = r.get(f"abuse:{ip}")
+            if val is not None:
+                abuse_score = float(val)
+        except Exception:
+            pass
+            
+        result.append({
+            "ip": ip,
+            "count": count,
+            "country": country,
+            "abuse_score": abuse_score
+        })
+    return result
+
 
 
 def get_attack_types_distribution() -> List[Dict[str, Any]]:

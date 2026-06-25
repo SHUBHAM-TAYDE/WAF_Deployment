@@ -31,8 +31,9 @@ async def preview_exclusion(
         json_str = base64.b64decode(encoded_str).decode("utf-8")
         request = ExclusionPreviewRequest(**json.loads(json_str))
 
-        # Determine a simulated ID
-        simulated_id = 9999
+        # Use the real next sequence ID so the preview accurately shows the rule that will be saved.
+        # This is read-only — it does not reserve or consume the ID.
+        preview_id = db_service.get_next_exclusion_sequence_id()
         rule_text = rule_manager.generate_modsec_rule(
             exclusion_type=request.exclusion_type,
             rule_id=request.rule_id,
@@ -40,7 +41,7 @@ async def preview_exclusion(
             parameter_name=request.parameter_name,
             http_method=request.http_method,
             client_ip=request.client_ip,
-            next_id=simulated_id,
+            next_id=preview_id,
         )
         return {"modsec_rule": rule_text}
     except ValueError as ve:
@@ -86,9 +87,11 @@ async def create_new_exclusion(
 
     # Generate the rule first to validate inputs
     try:
-        # Get next auto-increment ID to use for rule ID generation
-        existing = db_service.get_all_exclusions()
-        next_id = len(existing) + 1
+        # BUG FIX: Use SQLite's internal monotonic sequence counter instead of len(existing)+1.
+        # len(existing)+1 causes ModSecurity rule ID collisions after any exclusion is deleted:
+        #   e.g. create rule→ID 10000001, delete it, create new rule→ID 10000001 again → CRASH.
+        # get_next_exclusion_sequence_id() reads sqlite_sequence which NEVER decreases or reuses IDs.
+        next_id = db_service.get_next_exclusion_sequence_id()
 
         modsec_rule_text = rule_manager.generate_modsec_rule(
             exclusion_type=request.exclusion_type,
@@ -208,7 +211,8 @@ async def update_note(
     return updated
 
 
-@router.post("/exclusions/{id}/delete")
+# FIX 3: Use proper HTTP DELETE method with standard REST URL pattern
+@router.delete("/exclusions/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_exclusion(id: int, current_user: TokenData = Depends(require_admin)):
     """Removes a rule exception and reloads WAF configs to activate the target rules."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -245,7 +249,4 @@ async def delete_exclusion(id: int, current_user: TokenData = Depends(require_ad
             status_code=400,
             detail=f"WAF reload failed: {msg}. Deletion aborted & rolled back.",
         )
-
-    return {
-        "message": "Exclusion rule successfully deleted and WAF configurations synchronized."
-    }
+    # 204 No Content — return nothing
