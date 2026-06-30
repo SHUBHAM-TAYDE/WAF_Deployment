@@ -51,6 +51,19 @@ export async function getLogs(page = 1, size = 50, filters = {}) {
 }
 
 /**
+ * Fetch a single WAF log entry by transaction ID
+ */
+export async function getLogById(logId) {
+  try {
+    const response = await fetch(`${BASE_URL}/logs/${logId}`, { cache: 'no-store' });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Failed to fetch log by ID ${logId}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Fetch overall statistics
  */
 export async function getStats() {

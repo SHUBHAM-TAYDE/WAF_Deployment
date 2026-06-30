@@ -381,6 +381,7 @@ export default function DdosBotMitigation() {
                     <option value="URI">Request URI</option>
                     <option value="Method">HTTP Method</option>
                     <option value="Header">Custom Header (Header-Name: Pattern)</option>
+                    <option value="Session">Session Cookie (Cookie-Name)</option>
                     <option value="Referrer">Referrer</option>
                     <option value="Content-Type">Content-Type</option>
                     <option value="IP">Client IP / Subnet</option>
@@ -400,15 +401,16 @@ export default function DdosBotMitigation() {
                   placeholder={
                     newRuleType === 'URI' ? 'e.g., ^/api/login' :
                       newRuleType === 'Method' ? 'e.g., POST' :
-                        newRuleType === 'Header' ? 'e.g., X-API-Key: ^temp-.*' :
-                          newRuleType === 'Referrer' ? 'e.g., google.com' :
-                            newRuleType === 'Content-Type' ? 'e.g., application/json' :
-                              newRuleType === 'Country' ? 'e.g., CN or RU (requires Country DB)' :
-                                newRuleType === 'ISP/ASN' ? 'e.g., Google or 15169 (requires ASN DB)' :
-                                  'e.g., 192.168.1.100'
+                        newRuleType === 'Header' ? 'e.g., X-API-Key (limits per key) OR X-API-Key: ^temp-.*' :
+                          newRuleType === 'Session' ? 'e.g., session (limits per session cookie value)' :
+                            newRuleType === 'Referrer' ? 'e.g., google.com' :
+                              newRuleType === 'Content-Type' ? 'e.g., application/json' :
+                                newRuleType === 'Country' ? 'e.g., CN or RU (requires Country DB)' :
+                                  newRuleType === 'ISP/ASN' ? 'e.g., Google or 15169 (requires ASN DB)' :
+                                    'e.g., 192.168.1.100'
                   }
                 />
-                <span style={{ fontSize: '11px', color: '#71717a' }}>Matches use case-insensitive regex pattern mapping.</span>
+                <span style={{ fontSize: '11px', color: '#71717a' }}>Matches use case-insensitive regex pattern mapping. Leave Header/Session value pattern empty to rate limit by unique value.</span>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>

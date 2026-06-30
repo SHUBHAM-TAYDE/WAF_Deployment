@@ -7,7 +7,7 @@ import {
   AlertTriangle, Globe, Lock
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, Bar, RadialBarChart, RadialBar } from 'recharts';
-import { getLogs, getStats, getTimeline, getAttackTypes, getTopRules, getSeverityDistribution, getTopIPs, getRules, getRuleDetails, enableRule, disableRule, setParanoiaLevel, getRulesStats, getRulesHistory, resetRules, getHealth, getGeneralSettings, saveGeneralSettings, getLogSettings, saveLogSettings, getWafSettings, saveWafSettings, changeAdminPassword, restartWafEngine, reloadNginxProxy, purgeStatsCache, syncSignatures, markFalsePositive, getFalsePositives, updateFalsePositiveStatus, updateFalsePositiveNote, deleteFalsePositive, createExclusion, getExclusions, updateExclusionStatus, updateExclusionNote, deleteExclusion, getExclusionsAnalytics, getExclusionsHistory, previewExclusionRule, getDiscoveredEndpoints, getRecentlyDiscoveredEndpoints, getApiProtectionAnalytics, getHardeningSettings, saveHardeningSettings, getAntiDefacementSettings, saveAntiDefacementSettings, getMLStats, getMLLogs, getMLTimeline } from './services/api';
+import { getLogs, getStats, getTimeline, getAttackTypes, getTopRules, getSeverityDistribution, getTopIPs, getRules, getRuleDetails, enableRule, disableRule, setParanoiaLevel, getRulesStats, getRulesHistory, resetRules, getHealth, getGeneralSettings, saveGeneralSettings, getLogSettings, saveLogSettings, getWafSettings, saveWafSettings, changeAdminPassword, restartWafEngine, reloadNginxProxy, purgeStatsCache, syncSignatures, markFalsePositive, getFalsePositives, updateFalsePositiveStatus, updateFalsePositiveNote, deleteFalsePositive, createExclusion, getExclusions, updateExclusionStatus, updateExclusionNote, deleteExclusion, getExclusionsAnalytics, getExclusionsHistory, previewExclusionRule, getDiscoveredEndpoints, getRecentlyDiscoveredEndpoints, getApiProtectionAnalytics, getHardeningSettings, saveHardeningSettings, getAntiDefacementSettings, saveAntiDefacementSettings, getMLStats, getMLLogs, getMLTimeline, getLogById } from './services/api';
 import { Copy, Check, ChevronLeft, ChevronRight, X, Clock, Database, Code, ShieldAlert as AlertIcon, AlertTriangle as AlertTriangleIcon, LogOut, Brain } from 'lucide-react';
 import Login from './components/Login';
 import DdosBotMitigation from './components/DdosBotMitigation';
@@ -252,47 +252,6 @@ function LogDetailsModal({ isOpen, log, onClose, onMarkFalsePositive }) {
             )}
           </div>
 
-          {/* Violations Detail */}
-          {log.violations && log.violations.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '11px', color: '#a1a1aa', textTransform: 'uppercase', fontWeight: 600, marginBottom: '8px' }}>Rule Violations & Matching Details</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {log.violations.map((violation, idx) => (
-                  <div key={idx} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', padding: '14px', borderRadius: '6px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#3b82f6', fontSize: '13px' }}>Rule ID: {violation.rule_id}</span>
-                      {violation.file && (
-                        <span style={{ fontSize: '11px', color: '#a1a1aa', fontFamily: 'monospace', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '300px' }} title={`${violation.file}:${violation.line_number}`}>
-                          {violation.file.split('/').pop()}:{violation.line_number}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#fde047', marginBottom: '8px' }}>{violation.message}</div>
-
-                    {/* Matched Data / Violating Payload */}
-                    {violation.data && (
-                      <div style={{ marginTop: '8px' }}>
-                        <div style={{ fontSize: '10px', color: '#a1a1aa', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 500 }}>Violating Parameter / Matched Payload</div>
-                        <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '4px', color: '#fca5a5', fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'monospace' }}>
-                          {violation.data}
-                        </pre>
-                      </div>
-                    )}
-
-                    {/* Match Pattern / Regex Signature */}
-                    {violation.pattern && (
-                      <div style={{ marginTop: '8px' }}>
-                        <div style={{ fontSize: '10px', color: '#a1a1aa', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 500 }}>WAF Rule Matching Pattern (Regex)</div>
-                        <code style={{ display: 'block', padding: '6px 10px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '4px', color: '#60a5fa', fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                          {violation.pattern}
-                        </code>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Original Audit Log */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -539,6 +498,36 @@ function ThreatAnalytics() {
     }
   };
 
+  const handleExportCSV = () => {
+    const token = localStorage.getItem('waf_token');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    fetch(`http://${window.location.host}/api/stats/export/csv`, {
+      headers: headers
+    })
+    .then(response => {
+      if (!response.ok) throw new Error("Export failed");
+      return response.blob();
+    })
+    .then(blob => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `waf_security_report_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    })
+    .catch(err => {
+      console.error("Export error:", err);
+      alert("Failed to export security logs: " + err.message);
+    });
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchAnalytics();
@@ -741,9 +730,35 @@ function ThreatAnalytics() {
             <Activity size={18} color="var(--accent-color)" />
             Attack Timeline / Inbound Threats Over Time
           </div>
-          <div className="pulse-container">
-            <div className="pulse-dot"></div>
-            <span>Live Sync</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <button
+              onClick={handleExportCSV}
+              className="pagination-btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                background: 'rgba(0, 212, 255, 0.1)',
+                border: '1px solid rgba(0, 212, 255, 0.25)',
+                color: 'var(--accent-color)',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                margin: 0,
+                fontWeight: 600,
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(0, 212, 255, 0.18)'}
+              onMouseLeave={(e) => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
+            >
+              <Copy size={13} />
+              Export Security Logs (CSV)
+            </button>
+            <div className="pulse-container">
+              <div className="pulse-dot"></div>
+              <span>Live Sync</span>
+            </div>
           </div>
         </div>
         <div className="chart-container" style={{ minHeight: '300px' }}>
@@ -1013,6 +1028,36 @@ function MLAnalytics() {
   const [refreshInterval, setRefreshInterval] = useState(3000);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [correlatedLog, setCorrelatedLog] = useState(null);
+  const [loadingCorrelated, setLoadingCorrelated] = useState(false);
+  const [modalActiveTab, setModalActiveTab] = useState('scores');
+
+  useEffect(() => {
+    if (selectedLog && selectedLog.unique_id) {
+      setLoadingCorrelated(true);
+      setModalActiveTab('scores');
+      getLogById(selectedLog.unique_id)
+        .then(data => {
+          if (data && !data.error) {
+            setCorrelatedLog(data);
+          } else {
+            setCorrelatedLog(null);
+          }
+        })
+        .catch(err => {
+          console.warn("No correlated ModSecurity audit log found:", err);
+          setCorrelatedLog(null);
+        })
+        .finally(() => {
+          setLoadingCorrelated(false);
+        });
+    } else {
+      setCorrelatedLog(null);
+      setModalActiveTab('scores');
+    }
+  }, [selectedLog]);
+
+  const [copiedRaw, setCopiedRaw] = useState(false);
 
   useEffect(() => {
     if (copied) {
@@ -1020,6 +1065,13 @@ function MLAnalytics() {
       return () => clearTimeout(t);
     }
   }, [copied]);
+
+  useEffect(() => {
+    if (copiedRaw) {
+      const t = setTimeout(() => setCopiedRaw(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [copiedRaw]);
 
   const handleCopy = () => {
     if (!selectedLog) return;
@@ -1041,6 +1093,33 @@ function MLAnalytics() {
         const successful = document.execCommand('copy');
         document.body.removeChild(textArea);
         if (successful) setCopied(true);
+      } catch (err) {
+        console.error("Fallback copy error", err);
+      }
+    }
+  };
+
+  const handleCopyRaw = () => {
+    if (!correlatedLog) return;
+    const raw = correlatedLog.raw_log || correlatedLog;
+    const textToCopy = JSON.stringify(raw, null, 2);
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(textToCopy)
+        .then(() => setCopiedRaw(true))
+        .catch(err => console.error("Copy failed", err));
+    } else {
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = textToCopy;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) setCopiedRaw(true);
       } catch (err) {
         console.error("Fallback copy error", err);
       }
@@ -1612,98 +1691,187 @@ function MLAnalytics() {
               <button className="modal-close-btn" onClick={() => setSelectedLog(null)}><X size={18} /></button>
             </div>
 
+            <div className="modal-tabs">
+              <button 
+                className={`modal-tab ${modalActiveTab === 'scores' ? 'active' : ''}`}
+                onClick={() => setModalActiveTab('scores')}
+              >
+                Threat Evaluation (Scores)
+              </button>
+              <button 
+                className={`modal-tab ${modalActiveTab === 'raw' ? 'active' : ''}`}
+                onClick={() => setModalActiveTab('raw')}
+              >
+                ModSecurity Raw Log
+              </button>
+            </div>
+
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '80vh', overflowY: 'auto' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
-                <div>
-                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Timestamp</span>
-                  <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.timestamp.replace('T', ' ')}</strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Client IP</span>
-                  <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{selectedLog.remote_addr}</strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Request Type</span>
-                  <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.method} - {selectedLog.ct || 'N/A'}</strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Body Content Length</span>
-                  <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.body_len} bytes</strong>
-                </div>
-              </div>
+              {modalActiveTab === 'scores' ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Timestamp</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.timestamp.replace('T', ' ')}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Client IP</span>
+                      <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{selectedLog.remote_addr}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Request Type</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.method} - {selectedLog.ct || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Body Content Length</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>{selectedLog.body_len} bytes</strong>
+                    </div>
+                  </div>
 
-              <div style={{ fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Target Request URI</span>
-                <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px 12px', fontFamily: 'monospace', color: 'var(--accent-color)', overflowX: 'auto' }}>
-                  {selectedLog.uri}
-                </div>
-              </div>
+                  <div style={{ fontSize: '13px' }}>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Target Request URI</span>
+                    <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px 12px', fontFamily: 'monospace', color: 'var(--accent-color)', overflowX: 'auto' }}>
+                      {selectedLog.uri}
+                    </div>
+                  </div>
 
-              {selectedLog.args && (
-                <div style={{ fontSize: '13px' }}>
-                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payload Arguments (`args`)</span>
-                  <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--warning-color)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                    {selectedLog.args}
-                  </pre>
-                </div>
+                  {selectedLog.args && (
+                    <div style={{ fontSize: '13px' }}>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Payload Arguments (`args`)</span>
+                      <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--warning-color)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                        {selectedLog.args}
+                      </pre>
+                    </div>
+                  )}
+
+                  {selectedLog.matched_vars && (
+                    <div style={{ fontSize: '13px' }}>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>OWASP CRS Rules Matched Variables</span>
+                      <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--danger-color)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                        {selectedLog.matched_vars}
+                      </pre>
+                    </div>
+                  )}
+
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontSize: '13px' }}>ML Diagnostics Vector</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', fontSize: '12px', textAlign: 'center' }}>
+                      <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                        <span style={{ color: 'var(--text-secondary)', display: 'block' }}>XGBoost Prob</span>
+                        <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{(selectedLog.xgb_prob * 100).toFixed(1)}%</strong>
+                      </div>
+                      <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                        <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Isolation Forest</span>
+                        <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.iso_score.toFixed(4)}</strong>
+                      </div>
+                      <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                        <span style={{ color: 'var(--text-secondary)', display: 'block' }}>ModSec CRS Anomaly</span>
+                        <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.crs_score}</strong>
+                      </div>
+                      <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                        <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Redis IP Rep</span>
+                        <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.redis_rep} Penalty</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontSize: '13px' }}>Reconstructed HTTP Request Signature</span>
+                    <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--accent-color)', overflowX: 'auto', fontSize: '12px', lineHeight: '1.5' }}>
+                      {`${selectedLog.method} ${selectedLog.uri}${selectedLog.args ? `?${selectedLog.args}` : ''} HTTP/1.1\n` +
+                        `Host: localhost\n` +
+                        (selectedLog.ua ? `User-Agent: ${selectedLog.ua}\n` : '') +
+                        (selectedLog.ct ? `Content-Type: ${selectedLog.ct}\n` : '') +
+                        (selectedLog.body_len ? `Content-Length: ${selectedLog.body_len}\n` : '')}
+                    </pre>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Complete Telemetry Database Record</span>
+                      <button
+                        className="pagination-btn"
+                        onClick={handleCopy}
+                        style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', margin: 0 }}
+                      >
+                        {copied ? <Check size={14} color="var(--success-color)" /> : <Copy size={14} />}
+                        <span>{copied ? "Copied!" : "Copy JSON"}</span>
+                      </button>
+                    </div>
+                    <HighlightedJson json={selectedLog} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {loadingCorrelated ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: '12px', color: 'var(--text-secondary)' }}>
+                      <Activity className="animate-spin" size={24} color="var(--accent-color)" />
+                      <span>Syncing correlated ModSecurity raw logs...</span>
+                    </div>
+                  ) : correlatedLog ? (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Timestamp</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{correlatedLog.timestamp}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Client IP</span>
+                          <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{correlatedLog.client_ip}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Severity</span>
+                          <strong style={{ color: correlatedLog.severity === 'Critical' || correlatedLog.severity === 'High' ? 'var(--danger-color)' : 'var(--warning-color)' }}>{correlatedLog.severity}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Attack Category</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{correlatedLog.attack_type}</strong>
+                        </div>
+                        {correlatedLog.rule_id && (
+                          <div>
+                            <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>ModSecurity Rule ID</span>
+                            <strong style={{ color: 'var(--accent-color)', fontFamily: 'monospace' }}>{correlatedLog.rule_id}</strong>
+                          </div>
+                        )}
+                        {correlatedLog.hostname && (
+                          <div>
+                            <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Host Target</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>{correlatedLog.hostname}</strong>
+                          </div>
+                        )}
+                      </div>
+
+                      {correlatedLog.message && (
+                        <div style={{ fontSize: '13px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Rule Message</span>
+                          <span style={{ color: 'var(--text-primary)', fontStyle: 'italic' }}>{correlatedLog.message}</span>
+                        </div>
+                      )}
+
+
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Complete Raw ModSecurity Audit Log JSON</span>
+                          <button
+                            className="pagination-btn"
+                            onClick={handleCopyRaw}
+                            style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', margin: 0 }}
+                          >
+                            {copiedRaw ? <Check size={14} color="var(--success-color)" /> : <Copy size={14} />}
+                            <span>{copiedRaw ? "Copied!" : "Copy JSON"}</span>
+                          </button>
+                        </div>
+                        <HighlightedJson json={correlatedLog.raw_log || correlatedLog} />
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: '10px', color: 'var(--text-secondary)' }}>
+                      <AlertTriangleIcon size={24} color="var(--warning-color)" />
+                      <span style={{ textAlign: 'center' }}>No matching ModSecurity audit logs found.<br/><span style={{ fontSize: '12px', opacity: 0.7 }}>(This clean request bypassed ModSecurity block/log thresholds).</span></span>
+                    </div>
+                  )}
+                </>
               )}
-
-              {selectedLog.matched_vars && (
-                <div style={{ fontSize: '13px' }}>
-                  <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>OWASP CRS Rules Matched Variables</span>
-                  <pre style={{ margin: 0, padding: '8px 12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--danger-color)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                    {selectedLog.matched_vars}
-                  </pre>
-                </div>
-              )}
-
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontSize: '13px' }}>ML Diagnostics Vector</span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', fontSize: '12px', textAlign: 'center' }}>
-                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>XGBoost Prob</span>
-                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{(selectedLog.xgb_prob * 100).toFixed(1)}%</strong>
-                  </div>
-                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Isolation Forest</span>
-                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.iso_score.toFixed(4)}</strong>
-                  </div>
-                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>ModSec CRS Anomaly</span>
-                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.crs_score}</strong>
-                  </div>
-                  <div style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Redis IP Rep</span>
-                    <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{selectedLog.redis_rep} Penalty</strong>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontSize: '13px' }}>Reconstructed HTTP Request Signature</span>
-                <pre style={{ margin: 0, padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', color: 'var(--accent-color)', overflowX: 'auto', fontSize: '12px', lineHeight: '1.5' }}>
-                  {`${selectedLog.method} ${selectedLog.uri}${selectedLog.args ? `?${selectedLog.args}` : ''} HTTP/1.1\n` +
-                    `Host: localhost\n` +
-                    (selectedLog.ua ? `User-Agent: ${selectedLog.ua}\n` : '') +
-                    (selectedLog.ct ? `Content-Type: ${selectedLog.ct}\n` : '') +
-                    (selectedLog.body_len ? `Content-Length: ${selectedLog.body_len}\n` : '')}
-                </pre>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Complete Telemetry Database Record</span>
-                  <button
-                    className="pagination-btn"
-                    onClick={handleCopy}
-                    style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', margin: 0 }}
-                  >
-                    {copied ? <Check size={14} color="var(--success-color)" /> : <Copy size={14} />}
-                    <span>{copied ? "Copied!" : "Copy JSON"}</span>
-                  </button>
-                </div>
-                <HighlightedJson json={selectedLog} />
-              </div>
             </div>
 
             <div className="modal-footer">
@@ -1739,11 +1907,21 @@ function LiveLogs({ onMarkFalsePositive }) {
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState('');
   const [attackFilter, setAttackFilter] = useState('');
+  const [focusMode, setFocusMode] = useState(false);
   const [sortField, setSortField] = useState('timestamp');
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedLog, setSelectedLog] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expandedLogs, setExpandedLogs] = useState(new Set());
+
+  const toggleFocusMode = () => {
+    setFocusMode(prev => {
+      const next = !prev;
+      // When enabling, clear the severity dropdown and let min_severity handle it
+      if (next) setSeverityFilter('');
+      return next;
+    });
+  };
 
   const toggleExpand = (id) => {
     setExpandedLogs(prev => {
@@ -1776,13 +1954,19 @@ function LiveLogs({ onMarkFalsePositive }) {
       setPage(1);
     }, 0);
     return () => clearTimeout(timer);
-  }, [search, severityFilter, attackFilter]);
+  }, [search, severityFilter, attackFilter, focusMode]);
 
   const fetchLogs = async () => {
     try {
       const filters = {};
       if (search.trim()) filters.search = search;
-      if (severityFilter) filters.severity = severityFilter;
+      // Focus Mode: use min_severity threshold (Critical + High) via backend.
+      // Otherwise fall back to the exact severity dropdown filter.
+      if (focusMode) {
+        filters.min_severity = 'High';
+      } else if (severityFilter) {
+        filters.severity = severityFilter;
+      }
       if (attackFilter) filters.attack_type = attackFilter;
 
       const logsData = await getLogs(page, size, filters);
@@ -1808,7 +1992,7 @@ function LiveLogs({ onMarkFalsePositive }) {
     }
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, size, search, severityFilter, attackFilter, refreshInterval, liveUpdates]);
+  }, [page, size, search, severityFilter, attackFilter, focusMode, refreshInterval, liveUpdates]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -1860,7 +2044,7 @@ function LiveLogs({ onMarkFalsePositive }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="search-input-wrapper">
             <Search size={14} color="#a1a1aa" style={{ position: 'absolute', left: '12px' }} />
             <input
@@ -1872,17 +2056,20 @@ function LiveLogs({ onMarkFalsePositive }) {
             />
           </div>
 
-          <select
-            className="filter-select"
-            value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value)}
-          >
-            <option value="">All Severities</option>
-            <option value="Critical">Critical</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>
+          {/* Severity dropdown: hidden when Focus Mode is active to prevent conflicting filter state */}
+          {!focusMode && (
+            <select
+              className="filter-select"
+              value={severityFilter}
+              onChange={(e) => setSeverityFilter(e.target.value)}
+            >
+              <option value="">All Severities</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          )}
 
           <select
             className="filter-select"
@@ -1907,7 +2094,61 @@ function LiveLogs({ onMarkFalsePositive }) {
             <option value="Anomaly Threshold Exceeded">Anomaly Threshold Exceeded</option>
             <option value="Unknown">Unknown</option>
           </select>
+
+          {/* Focus Mode: one-click Critical + High only filter for SOC incident response */}
+          <button
+            onClick={toggleFocusMode}
+            title={focusMode ? 'Disable Focus Mode — show all severities' : 'Enable Focus Mode — show Critical & High only'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 14px',
+              borderRadius: '8px',
+              border: focusMode
+                ? '1px solid rgba(239, 68, 68, 0.7)'
+                : '1px solid rgba(161, 161, 170, 0.3)',
+              background: focusMode
+                ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(249, 115, 22, 0.15))'
+                : 'rgba(255,255,255,0.04)',
+              color: focusMode ? '#fca5a5' : '#a1a1aa',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: focusMode ? '0 0 12px rgba(239, 68, 68, 0.25)' : 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ fontSize: '15px' }}>🎯</span>
+            {focusMode ? 'Focus: Critical + High' : 'Focus Mode'}
+          </button>
         </div>
+      </div>
+
+      {/* WAF Stream Indicator — Fix 4: transparent banner explaining what this feed contains */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginTop: '12px',
+        padding: '8px 14px',
+        borderRadius: '8px',
+        background: focusMode
+          ? 'rgba(239, 68, 68, 0.07)'
+          : 'rgba(59, 130, 246, 0.06)',
+        border: focusMode
+          ? '1px solid rgba(239, 68, 68, 0.2)'
+          : '1px solid rgba(59, 130, 246, 0.15)',
+        fontSize: '12px',
+        color: '#71717a',
+        transition: 'all 0.3s ease',
+      }}>
+        <ShieldCheck size={13} color={focusMode ? '#f87171' : '#60a5fa'} style={{ flexShrink: 0 }} />
+        {focusMode
+          ? <span><strong style={{ color: '#fca5a5' }}>Focus Mode active</strong> · Showing Critical &amp; High severity events only · <span style={{ color: '#a1a1aa' }}>{total} event{total !== 1 ? 's' : ''} matched</span></span>
+          : <span>WAF-intercepted events only &nbsp;·&nbsp; Normal traffic excluded &nbsp;·&nbsp; ModSecurity audit stream &nbsp;·&nbsp; <strong style={{ color: '#93c5fd' }}>{total} event{total !== 1 ? 's' : ''} total</strong></span>
+        }
       </div>
 
       <div className="logs-table-wrapper" style={{ marginTop: '16px' }}>
@@ -4744,6 +4985,7 @@ function ApiProtection() {
                 <th style={{ padding: '12px 8px' }}>Endpoint URI</th>
                 <th style={{ padding: '12px 8px' }}>Avg Latency</th>
                 <th style={{ padding: '12px 8px' }}>Requests</th>
+                <th style={{ padding: '12px 8px' }}>Traffic Source</th>
                 <th style={{ padding: '12px 8px' }}>TLS</th>
                 <th style={{ padding: '12px 8px' }}>Compression</th>
                 <th style={{ padding: '12px 8px' }}>Score</th>
@@ -4752,29 +4994,57 @@ function ApiProtection() {
             </thead>
             <tbody>
               {(activeTab === 'inventory' ? endpoints : recentlyDiscovered).length > 0 ? (
-                (activeTab === 'inventory' ? endpoints : recentlyDiscovered).map((ep, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', color: '#e4e4e7' }}>
-                    <td style={{ padding: '12px 8px', ...getMethodStyle(ep.method) }}>{ep.method}</td>
-                    <td style={{ padding: '12px 8px', fontFamily: 'monospace' }}>{ep.uri}</td>
-                    <td style={{ padding: '12px 8px' }}>{ep.avg_response_time_ms} ms</td>
-                    <td style={{ padding: '12px 8px' }}>{ep.hit_count}</td>
-                    <td style={{ padding: '12px 8px', color: ep.has_https ? '#10b981' : '#ef4444' }}>
-                      {ep.has_https ? 'HTTPS' : 'HTTP'}
-                    </td>
-                    <td style={{ padding: '12px 8px', color: ep.content_encoding && ep.content_encoding !== 'none' ? '#10b981' : '#a1a1aa' }}>
-                      {ep.content_encoding || 'none'}
-                    </td>
-                    <td style={{ padding: '12px 8px', fontWeight: 600 }}>{ep.score} / 100</td>
-                    <td style={{ padding: '12px 8px' }}>
-                      <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, ...getGradeStyle(ep.grade) }}>
-                        {ep.grade}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                (activeTab === 'inventory' ? endpoints : recentlyDiscovered).map((ep, idx) => {
+                  // Traffic Source badge styles
+                  const trafficSource = ep.traffic_source || 'Unknown';
+                  const trafficBadgeStyle = (() => {
+                    switch (trafficSource) {
+                      case 'External': return { color: '#60a5fa', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)' };
+                      case 'Internal': return { color: '#34d399', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)' };
+                      case 'Mixed':    return { color: '#fbbf24', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)' };
+                      default:         return { color: '#71717a', background: 'rgba(113,113,122,0.12)', border: '1px solid rgba(113,113,122,0.3)' };
+                    }
+                  })();
+                  const trafficIcon = { External: '🌐', Internal: '🏠', Mixed: '🔀', Unknown: '❓' }[trafficSource] || '❓';
+
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', color: '#e4e4e7' }}>
+                      <td style={{ padding: '12px 8px', ...getMethodStyle(ep.method) }}>{ep.method}</td>
+                      <td style={{ padding: '12px 8px', fontFamily: 'monospace' }}>{ep.uri}</td>
+                      <td style={{ padding: '12px 8px' }}>{ep.avg_response_time_ms} ms</td>
+                      <td style={{ padding: '12px 8px' }}>{ep.hit_count}</td>
+                      <td style={{ padding: '12px 8px' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '3px 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          ...trafficBadgeStyle,
+                        }}>
+                          {trafficIcon} {trafficSource}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 8px', color: ep.has_https ? '#10b981' : '#ef4444' }}>
+                        {ep.has_https ? 'HTTPS' : 'HTTP'}
+                      </td>
+                      <td style={{ padding: '12px 8px', color: ep.content_encoding && ep.content_encoding !== 'none' ? '#10b981' : '#a1a1aa' }}>
+                        {ep.content_encoding || 'none'}
+                      </td>
+                      <td style={{ padding: '12px 8px', fontWeight: 600 }}>{ep.score} / 100</td>
+                      <td style={{ padding: '12px 8px' }}>
+                        <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, ...getGradeStyle(ep.grade) }}>
+                          {ep.grade}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan="8" style={{ padding: '32px 8px', textAlign: 'center', color: '#a1a1aa' }}>
+                  <td colSpan="9" style={{ padding: '32px 8px', textAlign: 'center', color: '#a1a1aa' }}>
                     No discovered endpoints listed.
                   </td>
                 </tr>
@@ -4782,6 +5052,7 @@ function ApiProtection() {
             </tbody>
           </table>
         </div>
+
       </div>
     </motion.div>
   );

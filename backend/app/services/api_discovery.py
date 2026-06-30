@@ -2,11 +2,36 @@ import os
 import re
 import random
 import logging
+import ipaddress
 from datetime import datetime
 import threading
 from app.services import db_service
 
 logger = logging.getLogger(__name__)
+
+# Private/internal address ranges to exclude from API discovery metrics.
+# These correspond to loopback, RFC1918, and link-local addresses.
+_INTERNAL_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),     # Loopback
+    ipaddress.ip_network("10.0.0.0/8"),      # RFC1918 Class A
+    ipaddress.ip_network("172.16.0.0/12"),   # RFC1918 Class B
+    ipaddress.ip_network("192.168.0.0/16"),  # RFC1918 Class C
+    ipaddress.ip_network("169.254.0.0/16"),  # Link-local
+    ipaddress.ip_network("::1/128"),          # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),         # IPv6 unique local
+]
+
+
+def is_internal_ip(ip_str: str) -> bool:
+    """Returns True if the given IP address belongs to an internal/management network.
+    Uses Python's ipaddress module for precise CIDR matching.
+    """
+    try:
+        addr = ipaddress.ip_address(ip_str)
+        return any(addr in net for net in _INTERNAL_NETWORKS)
+    except ValueError:
+        # Unparseable IP (e.g. hostname) — treat as external to avoid silent drops
+        return False
 
 _discovery_lock = threading.Lock()
 
@@ -108,16 +133,26 @@ def run_api_discovery():
                 return
 
             endpoints_aggregated = {}
+            skipped_internal = 0
 
             for line in lines:
                 match = ACCESS_LINE_RE.match(line.strip())
                 if not match:
                     continue
 
+                # Skip management/internal traffic before any processing.
+                # This prevents dashboard polling and RFC1918 scanners from
+                # inflating hit counts and distorting threat ratio metrics.
+                client_ip = match.group("ip")
+                if is_internal_ip(client_ip):
+                    skipped_internal += 1
+                    continue
+
                 data = match.groupdict()
                 uri = data["uri"]
                 method = data["method"]
                 status_code = int(data["status"])
+                # All remaining IPs at this point are external (internal already filtered above)
 
                 clean_uri = uri.split("?")[0]
 
@@ -165,6 +200,8 @@ def run_api_discovery():
                         "error_count": 0,
                         "malicious_count": 0,
                         "suspicious_count": 0,
+                        "external_hit_count": 0,
+                        "internal_hit_count": 0,
                         "has_https": has_https,
                         "has_versioning": has_versioning,
                         "content_encoding": content_encoding,
@@ -174,6 +211,8 @@ def run_api_discovery():
                 ep = endpoints_aggregated[key]
                 ep["response_time_ms_sum"] += response_time_ms
                 ep["hit_count"] += 1
+                # Since internal IPs are filtered out above, all logged hits are external
+                ep["external_hit_count"] += 1
                 if is_error:
                     ep["error_count"] += 1
                 if is_malicious:
@@ -183,10 +222,16 @@ def run_api_discovery():
                 # Keep the latest timestamp
                 ep["timestamp"] = timestamp
 
+            if skipped_internal > 0:
+                logger.debug(
+                    f"API Discovery: skipped {skipped_internal} internal/RFC1918 IP lines from access log."
+                )
+
             if endpoints_aggregated:
                 db_service.bulk_upsert_discovered_endpoints(endpoints_aggregated)
                 logger.info(
-                    f"Bulk processed {len(lines)} access log records into {len(endpoints_aggregated)} unique API endpoints."
+                    f"Bulk processed {len(lines)} access log records into {len(endpoints_aggregated)} unique API endpoints "
+                    f"(skipped {skipped_internal} internal-IP lines)."
                 )
 
             # ONLY update the global file position after successful DB commit

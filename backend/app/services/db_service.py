@@ -90,12 +90,25 @@ def init_db():
                     error_count INTEGER DEFAULT 0,
                     malicious_count INTEGER DEFAULT 0,
                     suspicious_count INTEGER DEFAULT 0,
+                    external_hit_count INTEGER DEFAULT 0,
+                    internal_hit_count INTEGER DEFAULT 0,
                     has_https INTEGER DEFAULT 1,
                     has_versioning INTEGER DEFAULT 0,
                     content_encoding TEXT DEFAULT '',
                     UNIQUE(uri, method)
                 )
             """)
+            # Schema migrations: add traffic source columns to existing tables
+            for col, default in [
+                ("external_hit_count", "0"),
+                ("internal_hit_count", "0"),
+            ]:
+                try:
+                    cursor.execute(
+                        f"ALTER TABLE discovered_endpoints ADD COLUMN {col} INTEGER DEFAULT {default}"
+                    )
+                except Exception:
+                    pass  # Column already exists — expected on re-init
             conn.commit()
             logger.info("Database schemas initialized successfully.")
     except Exception as e:
@@ -730,6 +743,8 @@ def bulk_upsert_discovered_endpoints(endpoints_data: dict):
         (uri, method): {
             "response_time_ms_sum": float,
             "hit_count": int,
+            "external_hit_count": int,
+            "internal_hit_count": int,
             "error_count": int,
             "malicious_count": int,
             "suspicious_count": int,
@@ -758,6 +773,8 @@ def bulk_upsert_discovered_endpoints(endpoints_data: dict):
                 if row:
                     row_dict = dict(row)
                     new_hit_count = row_dict["hit_count"] + data["hit_count"]
+                    new_external_hit_count = row_dict.get("external_hit_count", 0) + data.get("external_hit_count", 0)
+                    new_internal_hit_count = row_dict.get("internal_hit_count", 0) + data.get("internal_hit_count", 0)
                     
                     # Calculate new average
                     total_time_existing = row_dict["avg_response_time_ms"] * row_dict["hit_count"]
@@ -773,6 +790,8 @@ def bulk_upsert_discovered_endpoints(endpoints_data: dict):
                         SET last_seen = ?, 
                             avg_response_time_ms = ?, 
                             hit_count = ?, 
+                            external_hit_count = ?,
+                            internal_hit_count = ?,
                             error_count = ?, 
                             malicious_count = ?, 
                             suspicious_count = ?,
@@ -783,6 +802,8 @@ def bulk_upsert_discovered_endpoints(endpoints_data: dict):
                             data["timestamp"],
                             new_avg,
                             new_hit_count,
+                            new_external_hit_count,
+                            new_internal_hit_count,
                             new_error_count,
                             new_malicious_count,
                             new_suspicious_count,
@@ -797,8 +818,9 @@ def bulk_upsert_discovered_endpoints(endpoints_data: dict):
                         """
                         INSERT INTO discovered_endpoints (
                             uri, method, first_seen, last_seen, avg_response_time_ms, hit_count, 
-                            error_count, malicious_count, suspicious_count, has_https, has_versioning, content_encoding
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            external_hit_count, internal_hit_count, error_count, malicious_count, 
+                            suspicious_count, has_https, has_versioning, content_encoding
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                         (
                             uri,
@@ -807,6 +829,8 @@ def bulk_upsert_discovered_endpoints(endpoints_data: dict):
                             data["timestamp"],
                             avg_time,
                             data["hit_count"],
+                            data.get("external_hit_count", 0),
+                            data.get("internal_hit_count", 0),
                             data["error_count"],
                             data["malicious_count"],
                             data["suspicious_count"],
@@ -819,4 +843,3 @@ def bulk_upsert_discovered_endpoints(endpoints_data: dict):
             conn.commit()
     except Exception as e:
         logger.error(f"Error in bulk upserting discovered endpoints: {e}")
-

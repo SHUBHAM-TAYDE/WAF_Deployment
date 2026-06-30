@@ -149,6 +149,7 @@ local matched_vars = ngx.var.modsec_matched_var_names or ""
 
 -- 3. Prepare telemetry payload parameters
 local payload = {
+    unique_id = ngx.var.unique_id or ngx.var.request_id or "",
     crs_score = crs_score,
     matched_vars = matched_vars,
     uri = ngx.var.request_uri or "",

@@ -14,8 +14,9 @@ router = APIRouter()
 @router.get("/logs", response_model=PaginatedLogs)
 async def get_logs(
     page: int = Query(1, ge=1),
-    size: int = Query(50, ge=1, le=1000),
+    size: int = Query(50, ge=1, le=3000),
     severity: Optional[str] = None,
+    min_severity: Optional[str] = None,
     rule_id: Optional[str] = None,
     ip: Optional[str] = None,
     attack_type: Optional[str] = None,
@@ -25,12 +26,23 @@ async def get_logs(
 ):
     """
     Fetch paginated, filtered logs.
+
+    - severity: exact match (e.g. 'High')
+    - min_severity: threshold match — returns events at or above this level.
+      Order: Critical (4) > High (3) > Medium (2) > Low (1).
+      e.g. min_severity=High returns both Critical and High events.
     """
+    # Severity ordering used for min_severity threshold filtering
+    SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+
     logs = get_all_logs()
 
     # Apply filters
     if severity:
         logs = [log for log in logs if log.severity.lower() == severity.lower()]
+    if min_severity:
+        threshold = SEVERITY_ORDER.get(min_severity.lower(), 0)
+        logs = [log for log in logs if SEVERITY_ORDER.get(log.severity.lower(), 0) >= threshold]
     if rule_id:
         logs = [log for log in logs if log.rule_id == rule_id]
     if ip:
@@ -59,6 +71,21 @@ async def get_logs(
     paginated_data = logs[start:end]
 
     return PaginatedLogs(data=paginated_data, total=total, page=page, size=size)
+
+
+from fastapi import HTTPException
+from app.models.log_model import LogEntry
+
+@router.get("/logs/{log_id}", response_model=LogEntry)
+async def get_log_by_id(log_id: str, current_user: TokenData = Depends(require_any_role)):
+    """
+    Fetch a single WAF log entry by its unique transaction ID.
+    """
+    logs = get_all_logs()
+    for log in logs:
+        if log.id == log_id:
+            return log
+    raise HTTPException(status_code=404, detail="Log entry not found")
 
 
 @router.websocket("/logs/stream")

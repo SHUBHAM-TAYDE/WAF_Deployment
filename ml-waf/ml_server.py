@@ -46,6 +46,7 @@ def init_sqlite_db():
             CREATE TABLE IF NOT EXISTS ml_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                unique_id TEXT,
                 crs_score REAL,
                 matched_vars TEXT,
                 uri TEXT,
@@ -72,6 +73,12 @@ def init_sqlite_db():
         except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE ml_events ADD COLUMN abuse_score REAL DEFAULT 0.0;")
             conn.commit()
+
+        try:
+            cursor.execute("SELECT unique_id FROM ml_events LIMIT 1;")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE ml_events ADD COLUMN unique_id TEXT;")
+            conn.commit()
             
         conn.close()
         try:
@@ -88,6 +95,7 @@ init_sqlite_db()
 app = FastAPI(title="ML-Enhanced WAF Prediction Daemon")
 
 class RequestTelemetry(BaseModel):
+    unique_id: str = Field(default="", description="Unique request/transaction ID")
     crs_score: float = Field(default=0.0, description="Anomaly score calculated by OWASP CRS")
     matched_vars: str = Field(default="", description="Variables matched by ModSecurity rules")
     uri: str = Field(default="", description="Request URI path")
@@ -106,10 +114,11 @@ def write_to_sqlite(event: dict):
         cursor.execute("PRAGMA journal_mode=WAL;")
         cursor.execute("""
             INSERT INTO ml_events (
-                crs_score, matched_vars, uri, args, method, body_len, ct, ua, remote_addr,
+                unique_id, crs_score, matched_vars, uri, args, method, body_len, ct, ua, remote_addr,
                 redis_rpm, redis_rep, xgb_prob, iso_score, threat_score, decision, abuse_score
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
+            event.get("unique_id", ""),
             event.get("crs_score", 0.0),
             event.get("matched_vars", ""),
             event.get("uri", ""),

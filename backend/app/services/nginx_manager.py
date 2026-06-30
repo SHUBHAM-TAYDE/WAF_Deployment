@@ -161,7 +161,8 @@ def apply_ddos_settings(settings: dict) -> bool:
             f"limit_req zone=waf_ddos_req burst={burst_tolerance} nodelay;"
         )
         # Apply bot mitigation rate-limiting globally
-        config_lines.append("limit_req zone=waf_bot_req burst=0 nodelay;")
+        # burst=1 because nginx requires burst >= 1; bots hit limit=1r/m so burst of 1 is effectively immediate block
+        config_lines.append("limit_req zone=waf_bot_req burst=1 nodelay;")
         config_lines.append("")
 
         # Connection limiting
@@ -185,8 +186,9 @@ def apply_ddos_settings(settings: dict) -> bool:
                 rule_rps = rule.get("rate_limit_rps", 10)
                 rule_burst = rule.get("burst_tolerance", 20)
 
-                # Determine NGINX variable to inspect
+                # Determine NGINX variable to inspect and whether to rate-limit by the value itself
                 nginx_var = "$request_uri"
+                limit_by_value = False
                 if param_type == "URI":
                     nginx_var = "$request_uri"
                 elif param_type == "Method":
@@ -197,6 +199,10 @@ def apply_ddos_settings(settings: dict) -> bool:
                     nginx_var = "$http_content_type"
                 elif param_type == "IP":
                     nginx_var = "$remote_addr"
+                elif param_type == "Session":
+                    cookie_name = param_value.strip() or "session"
+                    nginx_var = f"$cookie_{cookie_name.lower().replace('-', '_')}"
+                    limit_by_value = True
                 elif param_type == "Country":
                     if not has_country_db:
                         logger.warning(
@@ -221,31 +227,41 @@ def apply_ddos_settings(settings: dict) -> bool:
                         parts = param_value.split(":", 1)
                         header_name = parts[0].strip()
                         param_value = parts[1].strip()
+                        nginx_var = "$http_" + header_name.lower().replace("-", "_")
                     else:
                         header_name = param_value.strip()
-                        param_value = ".*"  # Match anything if no pattern is specified
+                        nginx_var = "$http_" + header_name.lower().replace("-", "_")
+                        limit_by_value = True
 
-                    nginx_var = "$http_" + header_name.lower().replace("-", "_")
-
-                # Sanitize pattern to prevent NGINX config injection
-                # Strip characters that can break NGINX map block structure
-                clean_value = _sanitize_nginx_pattern(param_value)
-                if not clean_value:
-                    logger.warning(f"Skipping rule '{rule_name}': pattern is empty after sanitization.")
-                    continue
-
-                config_lines.append(
-                    f"# Rule: {rule_name} (Type: {param_type}, Match: {param_value})"
-                )
-                config_lines.append(f"map {nginx_var} $limit_key_{rule_id} {{")
-                # Map to $limit_key (so trusted IPs automatically bypass this check)
-                # If param_type is Country, IP or numeric ISP/ASN, anchor matching with ^...$ to prevent substring matching
-                if param_type in ("Country", "IP") or (param_type == "ISP/ASN" and param_value.strip().isdigit()):
-                    config_lines.append(f'    "~*^{clean_value}$" {zone_key};')
+                if limit_by_value:
+                    config_lines.append(
+                        f"# Rule: {rule_name} (Type: {param_type}, Limit by unique value of {nginx_var})"
+                    )
+                    config_lines.append(f"map {nginx_var} $limit_key_{rule_id} {{")
+                    config_lines.append(f'    "~.+" {nginx_var};')
+                    config_lines.append('    default "";')
+                    config_lines.append("}")
                 else:
-                    config_lines.append(f'    "~*{clean_value}" {zone_key};')
-                config_lines.append('    default "";')
-                config_lines.append("}")
+                    # Sanitize pattern to prevent NGINX config injection
+                    # Strip characters that can break NGINX map block structure
+                    clean_value = _sanitize_nginx_pattern(param_value)
+                    if not clean_value:
+                        logger.warning(f"Skipping rule '{rule_name}': pattern is empty after sanitization.")
+                        continue
+
+                    config_lines.append(
+                        f"# Rule: {rule_name} (Type: {param_type}, Match: {param_value})"
+                    )
+                    config_lines.append(f"map {nginx_var} $limit_key_{rule_id} {{")
+                    # Map to $limit_key (so trusted IPs automatically bypass this check)
+                    # If param_type is Country, IP or numeric ISP/ASN, anchor matching with ^...$ to prevent substring matching
+                    if param_type in ("Country", "IP") or (param_type == "ISP/ASN" and param_value.strip().isdigit()):
+                        config_lines.append(f'    "~*^{clean_value}$" {zone_key};')
+                    else:
+                        config_lines.append(f'    "~*{clean_value}" {zone_key};')
+                    config_lines.append('    default "";')
+                    config_lines.append("}")
+
                 config_lines.append(
                     f"limit_req_zone $limit_key_{rule_id} zone=zone_{rule_id}:10m rate={rule_rps}r/s;"
                 )
@@ -271,20 +287,30 @@ def apply_ddos_settings(settings: dict) -> bool:
 
 
 def reload_nginx() -> bool:
-    """Reloads the NGINX service."""
-    try:
-        result = subprocess.run(
-            ["nginx", "-s", "reload"], capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            logger.info("NGINX reloaded successfully.")
-            return True
-        else:
-            logger.error(f"NGINX reload failed: {result.stderr}")
-            return False
-    except Exception as e:
-        logger.error(f"Error reloading NGINX: {e}")
-        return False
+    """Reloads the NGINX/OpenResty service. Tries openresty binary first, then falls back to nginx."""
+    # Try openresty reload (this system uses OpenResty)
+    for cmd in [
+        ["/usr/local/openresty/bin/openresty", "-s", "reload"],
+        ["openresty", "-s", "reload"],
+        ["nginx", "-s", "reload"],
+    ]:
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                logger.info(f"NGINX/OpenResty reloaded successfully via {cmd[0]}.")
+                return True
+            else:
+                logger.warning(f"Reload via {cmd[0]} failed: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logger.debug(f"Command not found: {cmd[0]}, trying next...")
+            continue
+        except Exception as e:
+            logger.error(f"Error reloading via {cmd[0]}: {e}")
+            continue
+    logger.error("All NGINX/OpenResty reload attempts failed.")
+    return False
 
 
 def disable_ddos_mitigation() -> bool:

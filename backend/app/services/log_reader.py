@@ -22,7 +22,7 @@ last_scan_time: float = 0.0
 SCAN_INTERVAL: float = 2.0
 
 
-def list_newest_log_files(limit: int = 2000) -> List[str]:
+def list_newest_log_files(limit: int = 5000) -> List[str]:
     """
     Chronologically traverses day-level and minute-level subdirectories of settings.LOG_DIR
     to retrieve the newest audit files, bypassing full directory globbing.
@@ -99,7 +99,7 @@ def scan_log_directory():
     Dynamically rescans the ModSecurity log directory for JSON files,
     sorts them by newest first, and parses them.
     """
-    files = list_newest_log_files(limit=2000)
+    files = list_newest_log_files(limit=5000)
 
     new_count = 0
     for file_path in files:

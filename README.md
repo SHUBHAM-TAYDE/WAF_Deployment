@@ -77,7 +77,9 @@ Here is an overview of the directory structure of the CyberSentinel WAF reposito
 │   ├── compile-nginx-lua.sh      # Compiles Nginx / OpenResty Lua modules
 │   ├── rebuild-modsecurity-nginx.sh # Dynamic compilation of WAF engine modules
 │   ├── update-crs.sh             # Core Rule Set updater script
-│   └── deploy-frontend.sh        # Frontend distribution builder and deployment script
+│   ├── deploy-frontend.sh        # Frontend distribution builder and deployment script
+│   ├── modsec-clamscan.sh        # ClamAV malware scanning script
+│   └── setup_ddos_kernel.sh      # Kernel DDoS tuning configuration script
 ├── vite.config.js                # Vite build and server configurations
 └── index.html                    # Single Page Application main entrypoint
 ```
@@ -110,6 +112,11 @@ Quick reference mapping of important files, configuration, and log paths:
 4. **API Protection:** Inspects and assigns a security grade (A to F) to hidden application endpoints (APIs) to ensure background communications are safe.
 5. **Web Anti-Defacement (File Integrity):** Monitors files on the server in real-time. If an unauthorized attacker somehow changes the website code, CyberSentinel immediately reverts the file back to its original state and sounds an alarm.
 6. **Visual Control Panel:** A clean, responsive dashboard that lets you see live logs, adjust settings, and monitor attack statistics at a glance.
+7. **Administrative Multi-Factor Authentication (MFA):** Supports Google Authenticator (TOTP) to secure SOC logins with 6-digit verification codes.
+8. **Advanced Session & API Key Rate Limiting:** Enforces granular throttling based on custom HTTP headers or session cookies, tracking and restricting access rates per unique value (e.g. per-API key or per-session) rather than just per-IP.
+9. **Compliance CSV Reporting:** Real-time log export capability, allowing security analysts to stream and download historical threat event reports as formatted CSV files directly from the dashboard.
+10. **Malware Scanning Integration:** Intercepts uploaded files using ClamAV (`clamdscan`) integration to isolate and block dynamic payloads/webshells.
+11. **Kernel-level Network Hardening:** Performance automation to tune Linux networking sysctl parameters for SYN flood resilience.
 
 ---
 

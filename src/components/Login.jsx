@@ -191,13 +191,14 @@ function ThreatCounter() {
   );
 }
 
-/* ─── Main Login Component ───────────────────────────────── */
 const Login = ({ setAuth }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showMfa, setShowMfa] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -205,13 +206,28 @@ const Login = ({ setAuth }) => {
     setLoading(true);
 
     try {
+      const payload = { username, password };
+      if (showMfa) {
+        payload.otp_code = otpCode;
+      }
+
       const response = await fetch(`http://${window.location.host}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ username, password }),
+        body: new URLSearchParams(payload),
       });
 
-      if (!response.ok) throw new Error('Invalid credentials');
+      if (!response.ok) {
+        if (response.status === 400) {
+          const errData = await response.json().catch(() => ({}));
+          if (errData.detail === "MFA_REQUIRED") {
+            setShowMfa(true);
+            setLoading(false);
+            return;
+          }
+        }
+        throw new Error('Invalid credentials');
+      }
 
       const data = await response.json();
       localStorage.setItem('waf_token', data.access_token);
@@ -366,45 +382,67 @@ const Login = ({ setAuth }) => {
           </AnimatePresence>
 
           <form onSubmit={handleLogin} className="login-form">
-            <div className="form-group">
-              <label htmlFor="username">Admin Identity</label>
-              <div className="input-with-icon">
-                <Server size={16} className="input-icon" />
-                <input
-                  id="username"
-                  type="text"
-                  placeholder="Enter username"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  autoComplete="username"
-                  required
-                />
-              </div>
-            </div>
+            {!showMfa ? (
+              <>
+                <div className="form-group">
+                  <label htmlFor="username">Admin Identity</label>
+                  <div className="input-with-icon">
+                    <Server size={16} className="input-icon" />
+                    <input
+                      id="username"
+                      type="text"
+                      placeholder="Enter username"
+                      value={username}
+                      onChange={e => setUsername(e.target.value)}
+                      autoComplete="username"
+                      required
+                    />
+                  </div>
+                </div>
 
-            <div className="form-group">
-              <label htmlFor="password">Authentication Key</label>
-              <div className="input-with-icon">
-                <Lock size={16} className="input-icon" />
-                <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowPassword(s => !s)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+                <div className="form-group">
+                  <label htmlFor="password">Authentication Key</label>
+                  <div className="input-with-icon">
+                    <Lock size={16} className="input-icon" />
+                    <input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Enter password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowPassword(s => !s)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="form-group">
+                <label htmlFor="otpCode">Google Authenticator OTP Code</label>
+                <div className="input-with-icon">
+                  <ShieldCheck size={16} className="input-icon" color="var(--accent-color)" />
+                  <input
+                    id="otpCode"
+                    type="text"
+                    maxLength={6}
+                    placeholder="Enter 6-digit OTP code"
+                    value={otpCode}
+                    onChange={e => setOtpCode(e.target.value)}
+                    autoComplete="one-time-code"
+                    required
+                    autoFocus
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <button
               type="submit"
@@ -420,10 +458,24 @@ const Login = ({ setAuth }) => {
               ) : (
                 <>
                   <Zap size={17} />
-                  Initialize Session
+                  {showMfa ? "Verify OTP & Access" : "Initialize Session"}
                 </>
               )}
             </button>
+            {showMfa && (
+              <button
+                type="button"
+                className="login-btn"
+                style={{ background: 'rgba(255,255,255,0.05)', marginTop: '8px', border: '1px solid rgba(255,255,255,0.1)' }}
+                onClick={() => {
+                  setShowMfa(false);
+                  setOtpCode('');
+                  setError('');
+                }}
+              >
+                Cancel MFA Check
+              </button>
+            )}
           </form>
 
           <div className="login-footer">

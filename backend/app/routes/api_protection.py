@@ -61,9 +61,29 @@ def calculate_endpoint_score(ep: Dict[str, Any]) -> Dict[str, Any]:
     else:
         grade = "F"
 
+    # Traffic Source Classification
+    # Determines whether this endpoint is seen predominantly from external internet
+    # traffic, internal management traffic, or a mix of both.
+    external = ep.get("external_hit_count", 0)
+    internal = ep.get("internal_hit_count", 0)
+    total_classified = external + internal
+    if total_classified == 0:
+        traffic_source = "Unknown"
+    elif total_classified > 0 and internal == 0:
+        traffic_source = "External"
+    elif total_classified > 0 and external == 0:
+        traffic_source = "Internal"
+    elif external / total_classified >= 0.8:
+        traffic_source = "External"
+    elif internal / total_classified >= 0.8:
+        traffic_source = "Internal"
+    else:
+        traffic_source = "Mixed"
+
     ep_copy = dict(ep)
     ep_copy["score"] = score
     ep_copy["grade"] = grade
+    ep_copy["traffic_source"] = traffic_source
     return ep_copy
 
 
