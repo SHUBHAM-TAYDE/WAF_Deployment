@@ -64,15 +64,21 @@ Here is an overview of the directory structure of the CyberSentinel WAF reposito
 │   ├── train_iso.py              # Script to train the Isolation Forest model
 │   ├── ml_check.lua              # Lua hook script executing in OpenResty proxy context
 │   └── retrain.sh                # Shell automation script to retrain ML models
-├── src/                          # Vite + React Frontend Dashboard
-│   ├── main.jsx                  # React application entrypoint
-│   ├── App.jsx                   # Primary layout, routes, navigation, and tab renders
-│   ├── index.css                 # Global styles, tailwind/vanilla CSS tokens, and theme
-│   ├── components/               # Reusable UI component modules
-│   │   ├── Login.jsx             # Access control authentication login panel
-│   │   └── DdosBotMitigation.jsx # DDoS configuration editor dashboard
-│   └── services/                 # Frontend API services layer
-│       └── api.js                # API request clients wrapper to fetch backend APIs
+├── frontend/                     # Dedicated Frontend Workspace Folder (React + Vite)
+│   ├── src/                      # Vite + React Frontend Dashboard
+│   │   ├── main.jsx              # React application entrypoint
+│   │   ├── App.jsx               # Primary layout, routes, navigation, and tab renders
+│   │   ├── index.css             # Global styles, tailwind/vanilla CSS tokens, and theme
+│   │   ├── components/           # Reusable UI component modules
+│   │   │   ├── Login.jsx         # Access control authentication login panel
+│   │   │   └── DdosBotMitigation.jsx # DDoS configuration editor dashboard
+│   │   └── services/             # Frontend API services layer
+│   │       └── api.js            # API request clients wrapper to fetch backend APIs
+│   ├── public/                   # Public assets (icons, static graphics)
+│   ├── package.json              # NPM scripts and dependency packages list
+│   ├── package-lock.json         # Pinned packages dependency tree
+│   ├── vite.config.js            # Vite build environment configuration
+│   └── eslint.config.js          # ESLint code style syntax rules config
 ├── scripts/                      # System administration & deployment scripts
 │   ├── compile-nginx-lua.sh      # Compiles Nginx / OpenResty Lua modules
 │   ├── rebuild-modsecurity-nginx.sh # Dynamic compilation of WAF engine modules
@@ -80,8 +86,7 @@ Here is an overview of the directory structure of the CyberSentinel WAF reposito
 │   ├── deploy-frontend.sh        # Frontend distribution builder and deployment script
 │   ├── modsec-clamscan.sh        # ClamAV malware scanning script
 │   └── setup_ddos_kernel.sh      # Kernel DDoS tuning configuration script
-├── vite.config.js                # Vite build and server configurations
-└── index.html                    # Single Page Application main entrypoint
+└── dist/                         # Compiled production distribution directory (served by Nginx)
 ```
 
 ---

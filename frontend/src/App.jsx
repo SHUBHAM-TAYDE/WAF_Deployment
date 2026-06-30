@@ -731,30 +731,6 @@ function ThreatAnalytics() {
             Attack Timeline / Inbound Threats Over Time
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button
-              onClick={handleExportCSV}
-              className="pagination-btn"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                background: 'rgba(0, 212, 255, 0.1)',
-                border: '1px solid rgba(0, 212, 255, 0.25)',
-                color: 'var(--accent-color)',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                margin: 0,
-                fontWeight: 600,
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => e.target.style.background = 'rgba(0, 212, 255, 0.18)'}
-              onMouseLeave={(e) => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
-            >
-              <Copy size={13} />
-              Export Security Logs (CSV)
-            </button>
             <div className="pulse-container">
               <div className="pulse-dot"></div>
               <span>Live Sync</span>
