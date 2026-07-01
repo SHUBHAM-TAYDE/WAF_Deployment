@@ -17,13 +17,13 @@
 set -euo pipefail
 
 # --- Configuration ---
-ML_DIR="/opt/ml-waf"
+ML_DIR="/opt/ModSecurity/WAF_GUI/ml-waf"
 VENV_PYTHON="${ML_DIR}/venv/bin/python3"
 MODELS_DIR="${ML_DIR}/models"
 BACKUP_DIR="${ML_DIR}/models/backups"
 LOG_DIR="${ML_DIR}/logs"
 LOG_FILE="${LOG_DIR}/retrain.log"
-UDS_SOCKET="/opt/ModSecurity/WAF_GUI/ml-waf/run/ml_waf.sock"
+UDS_SOCKET="${ML_DIR}/run/ml_waf.sock"
 SERVICE_NAME="ml-waf"
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 
@@ -112,12 +112,23 @@ for MODEL_FILE in xgboost.pkl isolation_forest.pkl; do
     success "  ${MODEL_FILE} — ${SIZE}"
 done
 
-# --- Step 6: Restart the ml-waf FastAPI service to load new models ---
+# --- Step 6: Restart the ml-waf FastAPI daemon to load new models ---
 log "Restarting ${SERVICE_NAME} service to load new model binaries..."
-systemctl restart "$SERVICE_NAME" || {
-    error "Failed to restart ${SERVICE_NAME}. Models may not be loaded."
-}
-success "${SERVICE_NAME} service restarted."
+
+# Try systemctl first (if registered as a service)
+if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    systemctl restart "$SERVICE_NAME"
+    success "${SERVICE_NAME} systemctl service restarted."
+else
+    # Fallback: restart via the uvicorn process directly
+    log "systemctl service not found. Restarting via uvicorn process signal..."
+    UVICORN_PID=$(pgrep -f "uvicorn ml_server:app" | head -n 1)
+    if [ -n "$UVICORN_PID" ]; then
+        kill -HUP "$UVICORN_PID" 2>/dev/null && success "Sent SIGHUP to uvicorn process (PID ${UVICORN_PID})."
+    else
+        warn "Could not find a running ml-waf uvicorn process to restart. New models will load on next service start."
+    fi
+fi
 
 # --- Step 7: Wait for service to come up then hit health endpoint ---
 log "Waiting 5 seconds for service to initialize..."

@@ -1,16 +1,38 @@
 import logging
 import redis
+import os
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
+_REDIS_SECRET_FILE = "/etc/cybersentinel/redis.secret"
+
+
+def _get_redis_password() -> str:
+    """Reads the Redis password from a protected secret file."""
+    try:
+        with open(_REDIS_SECRET_FILE, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        logger.warning(
+            f"Redis secret file not found at {_REDIS_SECRET_FILE}. "
+            "Connecting without authentication."
+        )
+        return ""
+    except Exception as e:
+        logger.error(f"Failed to read Redis secret file: {e}")
+        return ""
+
+
+_redis_password = _get_redis_password()
+
 # Standard Redis connection setup. Setting aggressive timeouts to prevent blocking FastAPI responses.
 r = redis.Redis(
-    host='localhost', 
-    port=6379, 
-    db=0, 
-    password='YourSecureRedisPassword123!',
-    socket_timeout=0.05, 
+    host='localhost',
+    port=6379,
+    db=0,
+    password=_redis_password if _redis_password else None,
+    socket_timeout=0.05,
     socket_connect_timeout=0.05
 )
 

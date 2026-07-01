@@ -9,6 +9,26 @@ logger = logging.getLogger(__name__)
 
 DDOS_CONF_PATH = "/etc/nginx/conf.d/waf_ddos.conf"
 HARDENING_CONF_PATH = "/etc/nginx/conf.d/waf_hardening.conf"
+REDIS_SECRET_FILE = "/etc/cybersentinel/redis.secret"
+
+
+def _get_redis_password() -> str:
+    """
+    Reads the Redis authentication password from a protected secret file.
+    Falls back to empty string (no auth) if the file does not exist.
+    """
+    try:
+        with open(REDIS_SECRET_FILE, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        logger.warning(
+            f"Redis secret file not found at {REDIS_SECRET_FILE}. "
+            "Connecting without authentication."
+        )
+        return ""
+    except Exception as e:
+        logger.error(f"Failed to read Redis secret file: {e}")
+        return ""
 
 
 def _sanitize_nginx_pattern(value: str) -> str:
@@ -287,29 +307,45 @@ def apply_ddos_settings(settings: dict) -> bool:
 
 
 def reload_nginx() -> bool:
-    """Reloads the NGINX/OpenResty service. Tries openresty binary first, then falls back to nginx."""
-    # Try openresty reload (this system uses OpenResty)
-    for cmd in [
+    """
+    Reloads the NGINX/OpenResty service gracefully.
+    Tries sudo-prefixed commands first (required when running as non-root service user).
+    Falls back to direct execution if sudo is not available.
+    Requires /etc/sudoers.d/cybersentinel-waf to grant NOPASSWD for these commands.
+    """
+    candidates = [
+        # sudo variants (for non-root service user via sudoers grant)
+        ["sudo", "/usr/local/openresty/bin/openresty", "-s", "reload"],
+        ["sudo", "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload"],
+        # Direct variants (when running as root)
         ["/usr/local/openresty/bin/openresty", "-s", "reload"],
+        ["/usr/local/openresty/nginx/sbin/nginx", "-s", "reload"],
         ["openresty", "-s", "reload"],
         ["nginx", "-s", "reload"],
-    ]:
+    ]
+    for cmd in candidates:
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True
+                cmd, capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
-                logger.info(f"NGINX/OpenResty reloaded successfully via {cmd[0]}.")
+                logger.info(f"NGINX/OpenResty reloaded successfully via: {' '.join(cmd)}")
                 return True
             else:
-                logger.warning(f"Reload via {cmd[0]} failed: {result.stderr.strip()}")
+                logger.warning(
+                    f"Reload via '{' '.join(cmd)}' failed (rc={result.returncode}): "
+                    f"{result.stderr.strip()}"
+                )
         except FileNotFoundError:
             logger.debug(f"Command not found: {cmd[0]}, trying next...")
             continue
-        except Exception as e:
-            logger.error(f"Error reloading via {cmd[0]}: {e}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"Reload command timed out: {' '.join(cmd)}")
             continue
-    logger.error("All NGINX/OpenResty reload attempts failed.")
+        except Exception as e:
+            logger.error(f"Error reloading via '{' '.join(cmd)}': {e}")
+            continue
+    logger.error("All NGINX/OpenResty reload attempts exhausted. Check sudoers and binary paths.")
     return False
 
 
@@ -327,10 +363,11 @@ def disable_ddos_mitigation() -> bool:
 
 
 def get_redis_client():
+    password = _get_redis_password()
     return redis.Redis(
         host="localhost",
         port=6379,
-        password="YourSecureRedisPassword123!",
+        password=password if password else None,
         socket_timeout=1.0,
         socket_connect_timeout=1.0
     )

@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Server, Search, Filter, ShieldCheck,
   AlertTriangle, Globe, Lock
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, Bar, RadialBarChart, RadialBar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Sector, ComposedChart, Bar, RadialBarChart, RadialBar } from 'recharts';
 import { getLogs, getStats, getTimeline, getAttackTypes, getTopRules, getSeverityDistribution, getTopIPs, getRules, getRuleDetails, enableRule, disableRule, setParanoiaLevel, getRulesStats, getRulesHistory, resetRules, getHealth, getGeneralSettings, saveGeneralSettings, getLogSettings, saveLogSettings, getWafSettings, saveWafSettings, changeAdminPassword, restartWafEngine, reloadNginxProxy, purgeStatsCache, syncSignatures, markFalsePositive, getFalsePositives, updateFalsePositiveStatus, updateFalsePositiveNote, deleteFalsePositive, createExclusion, getExclusions, updateExclusionStatus, updateExclusionNote, deleteExclusion, getExclusionsAnalytics, getExclusionsHistory, previewExclusionRule, getDiscoveredEndpoints, getRecentlyDiscoveredEndpoints, getApiProtectionAnalytics, getHardeningSettings, saveHardeningSettings, getAntiDefacementSettings, saveAntiDefacementSettings, getMLStats, getMLLogs, getMLTimeline, getLogById } from './services/api';
 import { Copy, Check, ChevronLeft, ChevronRight, X, Clock, Database, Code, ShieldAlert as AlertIcon, AlertTriangle as AlertTriangleIcon, LogOut, Brain } from 'lucide-react';
 import Login from './components/Login';
@@ -435,6 +435,7 @@ function ThreatAnalytics() {
   const [liveUpdates, setLiveUpdates] = useState(true);
 
   const [showFlash, setShowFlash] = useState(false);
+  const [activeVectorIndex, setActiveVectorIndex] = useState(null);
   const prevBlockedRef = React.useRef(0);
 
   useEffect(() => {
@@ -586,7 +587,6 @@ function ThreatAnalytics() {
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (blockedPercentage / 100) * circumference;
 
-  const maxVectorValue = Math.max(...attackDistribution.map(d => d.value), 1);
   const totalSeverityCount = severityDistribution.reduce((acc, curr) => acc + curr.value, 0);
 
   const radialData = severityDistribution
@@ -823,55 +823,156 @@ function ThreatAnalytics() {
         </div>
       </div>
 
-      {/* Attack Categories Distribution (Horizontal bars) */}
+      {/* Attack Categories Distribution (Premium Donut Chart) */}
       <div className="chart-card glass-panel" style={{ gridColumn: 'span 5' }}>
         <div className="card-title">
-          <ShieldAlert size={18} color="var(--warning-color)" />
+          <ShieldAlert size={18} color="#f97316" />
           Attack Vector Distribution
         </div>
-        <div className="chart-container" style={{ minHeight: '320px', padding: '10px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div className="chart-container" style={{ minHeight: '320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '8px 16px 16px' }}>
           {attackDistribution.length === 0 ? (
-            <div style={{ color: '#a1a1aa', fontSize: '13px', textAlign: 'center' }}>No categories data recorded</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
-              {attackDistribution.map((entry) => {
-                const percentage = (entry.value / maxVectorValue) * 100;
-                const barColor = COLORS[entry.name] || '#3b82f6';
-                return (
-                  <div key={entry.name} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{entry.name}</span>
-                      <span style={{ 
-                        fontFamily: 'var(--font-mono)', 
-                        fontWeight: 700, 
-                        color: barColor,
-                        background: `${barColor}15`,
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        border: `1px solid ${barColor}30`
-                      }}>
-                        {entry.value}
-                      </span>
-                    </div>
-                    <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '4px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${percentage}%` }}
-                        transition={{ duration: 0.8, ease: 'easeOut' }}
-                        style={{
-                          height: '100%',
-                          background: `linear-gradient(90deg, ${barColor}88, ${barColor})`,
-                          borderRadius: '4px',
-                          boxShadow: `0 0 10px ${barColor}40`
-                        }}
+            <div style={{ color: '#a1a1aa', fontSize: '13px' }}>No categories data recorded</div>
+          ) : (() => {
+            const totalVectors = attackDistribution.reduce((s, d) => s + d.value, 0);
+            const activeEntry = activeVectorIndex != null ? attackDistribution[activeVectorIndex] : null;
+            const activeColor = activeEntry ? (COLORS[activeEntry.name] || severityColors[activeVectorIndex % severityColors.length]) : null;
+
+            const renderActiveShape = (props) => {
+              const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
+              return (
+                <g>
+                  <path
+                    d={`M ${cx},${cy} L ${cx + (outerRadius + 8) * Math.cos(-startAngle * Math.PI / 180)},${cy + (outerRadius + 8) * Math.sin(-startAngle * Math.PI / 180)}`}
+                    stroke="none" fill="none"
+                  />
+                  <Sector
+                    cx={cx} cy={cy}
+                    innerRadius={innerRadius - 4}
+                    outerRadius={outerRadius + 10}
+                    startAngle={startAngle}
+                    endAngle={endAngle}
+                    fill={fill}
+                    style={{ filter: `drop-shadow(0 0 12px ${fill}99)` }}
+                  />
+                  <Sector
+                    cx={cx} cy={cy}
+                    innerRadius={outerRadius + 14}
+                    outerRadius={outerRadius + 17}
+                    startAngle={startAngle}
+                    endAngle={endAngle}
+                    fill={fill}
+                    opacity={0.5}
+                  />
+                </g>
+              );
+            };
+
+            return (
+              <>
+                <div style={{ position: 'relative', width: '100%', height: '200px' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={attackDistribution}
+                        cx="50%" cy="50%"
+                        innerRadius={58} outerRadius={82}
+                        paddingAngle={3}
+                        dataKey="value"
+                        activeIndex={activeVectorIndex}
+                        activeShape={renderActiveShape}
+                        onMouseEnter={(_, index) => setActiveVectorIndex(index)}
+                        onMouseLeave={() => setActiveVectorIndex(null)}
+                        strokeWidth={0}
+                      >
+                        {attackDistribution.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[entry.name] || severityColors[index % severityColors.length]}
+                            opacity={activeVectorIndex != null && activeVectorIndex !== index ? 0.45 : 1}
+                          />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        contentStyle={{ backgroundColor: 'rgba(9, 9, 11, 0.97)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 14px' }}
+                        itemStyle={{ color: '#fff', fontWeight: 600, fontSize: '13px' }}
+                        formatter={(value, name) => [`${value} events (${((value / totalVectors) * 100).toFixed(1)}%)`, name]}
                       />
-                    </div>
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  {/* Center label */}
+                  <div style={{
+                    position: 'absolute', top: '50%', left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    textAlign: 'center', pointerEvents: 'none'
+                  }}>
+                    {activeEntry ? (
+                      <>
+                        <div style={{ fontSize: '20px', fontWeight: 800, color: activeColor, lineHeight: 1.1, fontFamily: 'var(--font-mono)' }}>
+                          {activeEntry.value}
+                        </div>
+                        <div style={{ fontSize: '9px', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.8px', marginTop: '2px' }}>
+                          {((activeEntry.value / totalVectors) * 100).toFixed(0)}%
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: '#f4f4f5', lineHeight: 1.1, fontFamily: 'var(--font-mono)' }}>
+                          {totalVectors.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '9px', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.8px', marginTop: '2px' }}>
+                          Total Attacks
+                        </div>
+                      </>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                </div>
+
+                {/* Legend grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', width: '100%', padding: '4px 8px 0' }}>
+                  {attackDistribution.map((entry, index) => {
+                    const color = COLORS[entry.name] || severityColors[index % severityColors.length];
+                    const pct = ((entry.value / totalVectors) * 100).toFixed(0);
+                    const isActive = activeVectorIndex === index;
+                    return (
+                      <div
+                        key={entry.name}
+                        onMouseEnter={() => setActiveVectorIndex(index)}
+                        onMouseLeave={() => setActiveVectorIndex(null)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          gap: '6px', fontSize: '11px', cursor: 'pointer',
+                          padding: '5px 8px', borderRadius: '7px',
+                          background: isActive ? `${color}12` : 'transparent',
+                          border: `1px solid ${isActive ? color + '40' : 'transparent'}`,
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                          <div style={{
+                            width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
+                            backgroundColor: color,
+                            boxShadow: isActive ? `0 0 8px ${color}` : 'none',
+                            transition: 'box-shadow 0.2s'
+                          }} />
+                          <span style={{ color: isActive ? '#e4e4e7' : '#a1a1aa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: isActive ? 600 : 400 }}>
+                            {entry.name}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                          <span style={{
+                            fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 700,
+                            color: color, background: `${color}18`,
+                            padding: '1px 6px', borderRadius: '4px', border: `1px solid ${color}30`
+                          }}>{pct}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
         </div>
       </div>
 

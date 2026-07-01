@@ -340,17 +340,55 @@ async def change_password(
 # 5. Danger Zone / System Routes
 @router.post("/system/restart")
 async def restart_system(current_user: TokenData = Depends(require_admin)):
-    # As per approved plan Option A (Simulation of Delay)
-    logger.info("Restart WAF Engine triggered (simulated).")
-    await asyncio.sleep(1.0)
-    return {"message": "WAF ModSecurity Engine container restarted successfully."}
+    logger.info("Restart WAF Engine triggered.")
+    import subprocess
+    try:
+        # Restart openresty (which runs ModSecurity)
+        result = subprocess.run(
+            ["sudo", "/usr/bin/systemctl", "restart", "openresty"],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        if result.returncode != 0:
+            logger.error(f"Restart openresty failed: {result.stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to restart OpenResty WAF Engine: {result.stderr.strip()}"
+            )
+        
+        # Also restart ml-waf service to ensure ML daemon models are cleanly loaded
+        subprocess.run(
+            ["sudo", "/usr/bin/systemctl", "restart", "ml-waf"],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        
+        return {"message": "WAF ModSecurity Engine and ML Daemon restarted successfully."}
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=500,
+            detail="Restart command timed out. Please check system status."
+        )
+    except Exception as e:
+        logger.error(f"Error during WAF restart: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"System error during restart: {str(e)}"
+        )
 
 
 @router.post("/system/reload-nginx")
-async def reload_nginx(current_user: TokenData = Depends(require_admin)):
-    # As per approved plan Option A (Simulation of Delay)
-    logger.info("Reload NGINX service triggered (simulated).")
-    await asyncio.sleep(1.0)
+async def reload_nginx_service(current_user: TokenData = Depends(require_admin)):
+    logger.info("Reload NGINX service triggered.")
+    from app.services import nginx_manager
+    success = nginx_manager.reload_nginx()
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to reload NGINX service. Check system logs and permissions."
+        )
     return {"message": "NGINX service reloaded gracefully."}
 
 

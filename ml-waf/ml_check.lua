@@ -121,10 +121,31 @@ end
 -- Dynamic IP Restriction Check via Redis
 local red = redis:new()
 red:set_timeouts(100, 100, 100) -- 100ms
+
+-- Read Redis password from protected secret file (never hardcode credentials)
+local redis_password = nil
+local secret_file = io.open("/etc/cybersentinel/redis.secret", "r")
+if secret_file then
+    redis_password = secret_file:read("*l")
+    secret_file:close()
+    if redis_password then
+        redis_password = redis_password:match("^%s*(.-)%s*$") -- trim whitespace
+    end
+end
+
 local ok, err = red:connect("127.0.0.1", 6379)
 if ok then
-    local res, err = red:auth("YourSecureRedisPassword123!")
-    if res then
+    -- Only authenticate if password was loaded from the secret file
+    local auth_ok = true
+    if redis_password and redis_password ~= "" then
+        local res, auth_err = red:auth(redis_password)
+        if not res then
+            ngx.log(ngx.ERR, "Redis authentication failed: ", auth_err)
+            auth_ok = false
+        end
+    end
+
+    if auth_ok then
         local client_ip = ngx.var.remote_addr or ""
         local status = check_ip_auth(red, client_ip)
         
@@ -165,14 +186,31 @@ local payload = {
 local httpc = http.new()
 httpc:set_timeouts(500, 500, 500)
 
+-- CRS-only fallback threshold: if ML daemon is unavailable, only block requests where
+-- the ModSecurity CRS score already indicates a clear attack (score >= 20).
+-- This prevents a self-inflicted DoS if the ML daemon restarts during model retraining.
+local CRS_BLOCK_THRESHOLD = 20.0
+
+local function crs_only_fallback(reason)
+    ngx.log(ngx.WARN, "ML-WAF: ", reason, " — falling back to CRS-only mode.")
+    if crs_score >= CRS_BLOCK_THRESHOLD then
+        ngx.log(ngx.WARN, "ML-WAF CRS fallback: blocking request with CRS score=", crs_score)
+        ngx.status = ngx.HTTP_FORBIDDEN
+        ngx.header.content_type = "text/html; charset=UTF-8"
+        ngx.say("<h1>403 Forbidden</h1><p>Blocked by WAF (CRS Rule Enforcement)</p>")
+        ngx.exit(ngx.HTTP_FORBIDDEN)
+    else
+        -- CRS score is below threshold — allow through on ML daemon degraded mode
+        ngx.log(ngx.INFO, "ML-WAF CRS fallback: allowing request (CRS score=", crs_score, " < ", CRS_BLOCK_THRESHOLD, ")")
+        return
+    end
+end
+
 local uds_path = "unix:/opt/ModSecurity/WAF_GUI/ml-waf/run/ml_waf.sock"
 local ok, err = httpc:connect(uds_path)
 if not ok then
-    ngx.log(ngx.WARN, "ML-WAF Connection Failure: ", err)
-    ngx.status = ngx.HTTP_FORBIDDEN
-    ngx.header.content_type = "text/html; charset=UTF-8"
-    ngx.say("<h1>403 Forbidden</h1><p>Blocked by WAF (Security Rule Enforcement)</p>")
-    ngx.exit(ngx.HTTP_FORBIDDEN)
+    crs_only_fallback("ML daemon socket unreachable: " .. (err or "unknown"))
+    return
 end
 
 local res, err = httpc:request({
@@ -185,13 +223,11 @@ local res, err = httpc:request({
     }
 })
 
--- 5. Fail-Closed Fallback (If ML daemon times out or fails, block request)
+-- 5. Handle ML daemon failure — use CRS-only fallback instead of blocking all traffic
 if not res then
-    ngx.log(ngx.WARN, "ML-WAF Daemon connection error: ", err)
-    ngx.status = ngx.HTTP_FORBIDDEN
-    ngx.header.content_type = "text/html; charset=UTF-8"
-    ngx.say("<h1>403 Forbidden</h1><p>Blocked by WAF (Security Rule Enforcement)</p>")
-    ngx.exit(ngx.HTTP_FORBIDDEN)
+    httpc:close()
+    crs_only_fallback("ML daemon request error: " .. (err or "unknown"))
+    return
 end
 
 -- 6. Parse response from the FastAPI prediction server
@@ -212,9 +248,8 @@ elseif res.status == 200 then
     return
 
 else
-    ngx.log(ngx.WARN, "ML-WAF: unexpected daemon response status: ", res.status, " — blocking (fail-closed)")
-    ngx.status = ngx.HTTP_FORBIDDEN
-    ngx.header.content_type = "text/html; charset=UTF-8"
-    ngx.say("<h1>403 Forbidden</h1><p>Blocked by WAF (Integrity Rule Enforcement)</p>")
-    ngx.exit(ngx.HTTP_FORBIDDEN)
+    -- Unexpected daemon response — use CRS fallback instead of blanket block
+    ngx.log(ngx.WARN, "ML-WAF: unexpected daemon response status: ", res.status)
+    crs_only_fallback("unexpected daemon response status " .. tostring(res.status))
+    return
 end
