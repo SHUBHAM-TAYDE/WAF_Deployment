@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "xgboost": {
+    "version": 1,
+    "type": "bootstrap",
+    "training_date": "2026-07-01T11:08:13.610779Z",
+    "sample_count": 200,
+    "accuracy": 0.96,
+    "notes": "Bootstrap placeholder. Replace by running retrain.sh after traffic accumulates."
+  },
+  "isolation_forest": {
+    "version": 1,
+    "type": "bootstrap",
+    "training_date": "2026-07-01T11:08:13.610794Z",
+    "sample_count": 200,
+    "accuracy": null,
+    "notes": "Bootstrap placeholder. Replace by running retrain.sh after traffic accumulates."
+  }
+}

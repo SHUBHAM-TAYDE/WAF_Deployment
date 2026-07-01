@@ -3,6 +3,7 @@ import pickle
 import logging
 import sqlite3
 import json
+import threading
 import requests
 from fastapi import FastAPI, BackgroundTasks, Response, status
 from pydantic import BaseModel, Field
@@ -15,24 +16,70 @@ import threat_score
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 1. Enforce strict model loading at boot initialization
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-XGB_PATH = os.path.join(BASE_DIR, "models/xgboost.pkl")
-ISO_PATH = os.path.join(BASE_DIR, "models/isolation_forest.pkl")
+# ──────────────────────────────────────────────────────────────
+#  Model loading — graceful passive mode
+# ──────────────────────────────────────────────────────────────
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+XGB_PATH   = os.path.join(BASE_DIR, "models/xgboost.pkl")
+ISO_PATH   = os.path.join(BASE_DIR, "models/isolation_forest.pkl")
+META_PATH  = os.path.join(BASE_DIR, "models/model_metadata.json")
 
-if not os.path.exists(XGB_PATH) or not os.path.exists(ISO_PATH):
-    logger.critical("Model binaries missing at startup! Partial model loading is forbidden.")
-    raise FileNotFoundError("Missing classification binaries (models/xgboost.pkl and models/isolation_forest.pkl). Crash looping.")
+# Global model references & state flags
+xgb_model   = None
+iso_model   = None
+PASSIVE_MODE = False          # True  →  models absent, allow all traffic, skip ML scoring
 
-try:
-    with open(XGB_PATH, "rb") as f:
-        xgb_model = pickle.load(f)
-    with open(ISO_PATH, "rb") as f:
-        iso_model = pickle.load(f)
-    logger.info("Successfully loaded XGBoost and Isolation Forest models into memory.")
-except Exception as e:
-    logger.critical(f"Failed to load model binaries: {e}")
-    raise SystemExit(1)
+
+def _try_load_models() -> bool:
+    """Attempt to load both model binaries. Returns True on success."""
+    global xgb_model, iso_model
+    try:
+        with open(XGB_PATH, "rb") as f:
+            xgb_model = pickle.load(f)
+        with open(ISO_PATH, "rb") as f:
+            iso_model = pickle.load(f)
+        logger.info("Model binaries loaded into memory successfully.")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to load model binaries: {e}")
+        xgb_model = None
+        iso_model = None
+        return False
+
+
+def _bootstrap_and_load():
+    """
+    Called in a background thread when models are absent at startup.
+    Runs generate_dummy_models.py to create bootstrap placeholders,
+    then loads them so the service can switch out of passive mode.
+    """
+    global PASSIVE_MODE
+    bootstrap_script = os.path.join(BASE_DIR, "generate_dummy_models.py")
+    venv_python = os.path.join(BASE_DIR, "venv/bin/python3")
+
+    # Prefer the venv Python; fall back to the system interpreter
+    python_bin = venv_python if os.path.exists(venv_python) else "python3"
+
+    logger.info("PASSIVE MODE: Bootstrapping placeholder models via generate_dummy_models.py ...")
+    ret = os.system(f"{python_bin} {bootstrap_script}")
+    if ret == 0 and _try_load_models():
+        PASSIVE_MODE = False
+        logger.info("Bootstrap complete. Switched from PASSIVE MODE to ACTIVE MODE.")
+    else:
+        logger.warning("Bootstrap failed. Service will remain in PASSIVE MODE until models are manually provided.")
+
+
+# ── Try loading existing production models
+if not _try_load_models():
+    PASSIVE_MODE = True
+    logger.warning(
+        "[PASSIVE MODE] Model binaries not found. "
+        "The ML-WAF service will ALLOW all traffic and skip ML scoring until models are ready. "
+        "Bootstrapping placeholder models in background thread..."
+    )
+    threading.Thread(target=_bootstrap_and_load, daemon=True).start()
+else:
+    logger.info("ML-WAF service started in ACTIVE MODE — scoring is enabled.")
 
 # 2. SQLite client configuration
 DB_PATH = "/opt/ModSecurity/WAF_GUI/backend/app/data/ml_events.db"
@@ -143,8 +190,22 @@ def write_to_sqlite(event: dict):
 
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
-    """Service health state endpoint."""
-    return {"status": "healthy", "models_loaded": True}
+    """Service health state endpoint — includes model metadata."""
+    # Load model_metadata.json if it exists
+    model_meta = {}
+    try:
+        if os.path.exists(META_PATH):
+            with open(META_PATH, "r") as f:
+                model_meta = json.load(f)
+    except Exception:
+        model_meta = {}
+
+    return {
+        "status":        "healthy",
+        "passive_mode":  PASSIVE_MODE,
+        "models_loaded": (xgb_model is not None and iso_model is not None),
+        "model_metadata": model_meta
+    }
 
 SETTINGS_PATH = "/opt/ModSecurity/WAF_GUI/backend/app/config/settings.json"
 
@@ -206,6 +267,15 @@ def predict(payload: RequestTelemetry, background_tasks: BackgroundTasks, respon
     """
     ip = payload.remote_addr or "unknown"
     
+    # ── PASSIVE MODE guard: if models are not yet loaded, allow all traffic
+    if PASSIVE_MODE or xgb_model is None or iso_model is None:
+        logger.warning(
+            f"PASSIVE MODE: Request from {ip} allowed without ML scoring. "
+            "Models not yet available."
+        )
+        response.status_code = status.HTTP_200_OK
+        return {"decision": "allow", "threat_score": 0.0, "passive_mode": True}
+
     # 1. Fetch live Redis behavioral telemetry
     redis_rpm, redis_rep, abuse_score = redis_features.get_redis_metrics(ip)
     
