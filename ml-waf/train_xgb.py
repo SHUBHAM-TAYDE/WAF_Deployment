@@ -1,10 +1,12 @@
 import os
+import json
 import pickle
 import logging
+import datetime
 import numpy as np
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score
 
 import collect_data
 import feature_pipeline
@@ -130,6 +132,34 @@ def train():
     with open(XGB_PATH, "wb") as f:
         pickle.dump(model, f)
     print(f"XGBoost classification binary successfully saved to: {XGB_PATH}\n")
+
+    # 10. Update model_metadata.json with real training metrics
+    META_PATH = os.path.join(MODELS_DIR, "model_metadata.json")
+    try:
+        meta = {}
+        if os.path.exists(META_PATH):
+            with open(META_PATH, "r") as mf:
+                meta = json.load(mf)
+
+        # Bump version if a previous entry exists
+        prev_version = meta.get("xgboost", {}).get("version", 0)
+        val_accuracy = float(accuracy_score(y_val, preds))
+
+        meta.setdefault("schema_version", 1)
+        meta["xgboost"] = {
+            "version":       prev_version + 1,
+            "type":          "production",
+            "training_date": datetime.datetime.utcnow().isoformat() + "Z",
+            "sample_count":  int(len(X_train)),
+            "accuracy":      round(val_accuracy, 4),
+            "notes":         f"{num_benign} benign + {num_attack} attack samples used for training."
+        }
+
+        with open(META_PATH, "w") as mf:
+            json.dump(meta, mf, indent=2)
+        print(f"Model metadata updated: {META_PATH}")
+    except Exception as meta_err:
+        logger.warning(f"Failed to write model metadata: {meta_err}")
 
 
 if __name__ == "__main__":

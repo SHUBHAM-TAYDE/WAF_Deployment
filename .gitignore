@@ -45,9 +45,9 @@ backend/app/data/GeoLite2-Country.mmdb
 # =============================================================================
 # ML MODEL BINARIES  ← Large binary blobs, retrained automatically
 # =============================================================================
-ml-waf/models/*.pkl
 ml-waf/models/backups/
 *.pkl
+!ml-waf/models/*.pkl
 *.joblib
 *.h5
 *.onnx

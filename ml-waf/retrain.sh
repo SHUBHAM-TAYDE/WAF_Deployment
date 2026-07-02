@@ -27,6 +27,12 @@ UDS_SOCKET="${ML_DIR}/run/ml_waf.sock"
 SERVICE_NAME="ml-waf"
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 
+# Minimum acceptable XGBoost validation accuracy (0.0 – 1.0).
+# If the newly trained model scores below this threshold the
+# retraining pipeline automatically rolls back to the previous
+# model binaries and aborts deployment.
+MIN_ACCURACY="0.65"
+
 # --- Colors (only when running interactively) ---
 if [ -t 1 ]; then
     RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -101,7 +107,61 @@ if [ "${PIPESTATUS[0]}" -ne 0 ]; then
 fi
 success "XGBoost training complete."
 
-# --- Step 5: Verify both model files were actually produced ---
+# --- Step 5: Accuracy gate — validate new model before deployment ---
+# Run a quick validation using the model metadata written by train_xgb.py.
+# If validation accuracy is below MIN_ACCURACY, roll back both models.
+log "Validating new XGBoost model accuracy against threshold (>= ${MIN_ACCURACY})..."
+
+NEW_ACCURACY=$("$VENV_PYTHON" - <<'PYEOF'
+import json, sys, os
+meta_path = os.path.join(os.path.dirname(os.path.abspath("$0")),
+    "/opt/ModSecurity/WAF_GUI/ml-waf/models/model_metadata.json")
+try:
+    with open(meta_path) as f:
+        meta = json.load(f)
+    acc = meta.get("xgboost", {}).get("accuracy")
+    print(acc if acc is not None else "0.0")
+except Exception as e:
+    print("0.0")
+PYEOF
+)
+
+log "New model validation accuracy: ${NEW_ACCURACY}"
+
+# Compare accuracy using Python (avoids bash float comparison issues)
+PASS_THRESHOLD=$("$VENV_PYTHON" -c "
+na = float('${NEW_ACCURACY}' or 0)
+mi = float('${MIN_ACCURACY}')
+print('yes' if na >= mi else 'no')
+")
+
+if [ "$PASS_THRESHOLD" = "no" ]; then
+    warn "Accuracy ${NEW_ACCURACY} is below minimum threshold ${MIN_ACCURACY}. Rolling back to previous model binaries."
+
+    # Restore latest XGBoost backup
+    LATEST_XGB_BAK=$(ls -1t "${BACKUP_DIR}/xgboost.pkl".*.bak 2>/dev/null | head -n 1)
+    if [ -n "$LATEST_XGB_BAK" ]; then
+        cp "$LATEST_XGB_BAK" "${MODELS_DIR}/xgboost.pkl"
+        warn "  Restored XGBoost from: $(basename $LATEST_XGB_BAK)"
+    else
+        warn "  No XGBoost backup found — keeping current (potentially bad) model."
+    fi
+
+    # Restore latest Isolation Forest backup
+    LATEST_ISO_BAK=$(ls -1t "${BACKUP_DIR}/isolation_forest.pkl".*.bak 2>/dev/null | head -n 1)
+    if [ -n "$LATEST_ISO_BAK" ]; then
+        cp "$LATEST_ISO_BAK" "${MODELS_DIR}/isolation_forest.pkl"
+        warn "  Restored Isolation Forest from: $(basename $LATEST_ISO_BAK)"
+    else
+        warn "  No Isolation Forest backup found — keeping current model."
+    fi
+
+    error "Rollback complete. Deployment aborted — investigate training data quality before next retrain."
+fi
+
+success "Accuracy gate passed (${NEW_ACCURACY} >= ${MIN_ACCURACY}). Deploying new models."
+
+# --- Step 6: Verify both model files were actually produced ---
 log "Verifying new model files..."
 for MODEL_FILE in xgboost.pkl isolation_forest.pkl; do
     FULL_PATH="${MODELS_DIR}/${MODEL_FILE}"
@@ -112,7 +172,7 @@ for MODEL_FILE in xgboost.pkl isolation_forest.pkl; do
     success "  ${MODEL_FILE} — ${SIZE}"
 done
 
-# --- Step 6: Restart the ml-waf FastAPI daemon to load new models ---
+# --- Step 7: Restart the ml-waf FastAPI daemon to load new models ---
 log "Restarting ${SERVICE_NAME} service to load new model binaries..."
 
 # Try systemctl first (if registered as a service)
@@ -130,7 +190,7 @@ else
     fi
 fi
 
-# --- Step 7: Wait for service to come up then hit health endpoint ---
+# --- Step 8: Wait for service to come up then hit health endpoint ---
 log "Waiting 5 seconds for service to initialize..."
 sleep 5
 

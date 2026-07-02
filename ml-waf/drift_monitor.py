@@ -1,4 +1,6 @@
 import logging
+import subprocess
+import os
 from datetime import datetime, timedelta
 from opensearchpy import OpenSearch, OpenSearchException
 
@@ -141,11 +143,62 @@ def monitor_drift():
             
         if trigger_alert:
             logger.warning(f"DRIFT THRESHOLD EXCEEDED: {', '.join(reasons)}")
+            _trigger_retrain(reasons)
         else:
             logger.info("Drift check passed. Telemetry metrics remain within operational baseline.")
             
     except Exception as e:
         logger.error(f"Error performing drift validation: {e}")
+
+
+def _trigger_retrain(reasons: list):
+    """
+    Automatically invoke retrain.sh when drift thresholds are exceeded.
+    Runs the script as a blocking subprocess so results are fully captured
+    in the drift monitor log before this process exits.
+    """
+    RETRAIN_SCRIPT = "/opt/ModSecurity/WAF_GUI/ml-waf/retrain.sh"
+    LOG_FILE       = "/opt/ModSecurity/WAF_GUI/ml-waf/logs/retrain.log"
+
+    if not os.path.exists(RETRAIN_SCRIPT):
+        logger.error(f"Retrain script not found: {RETRAIN_SCRIPT}. Cannot auto-retrain.")
+        return
+
+    logger.warning(
+        f"AUTO-RETRAIN TRIGGERED by drift monitor. Reasons: {', '.join(reasons)}. "
+        f"Invoking: {RETRAIN_SCRIPT}"
+    )
+
+    try:
+        # Append a drift-triggered header to the retrain log for traceability
+        with open(LOG_FILE, "a") as lf:
+            lf.write(
+                f"\n[{datetime.utcnow().isoformat()}Z] "
+                f"=== AUTO-RETRAIN triggered by drift_monitor.py ===\n"
+                f"Reasons: {', '.join(reasons)}\n"
+            )
+
+        result = subprocess.run(
+            ["bash", RETRAIN_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=600  # Allow up to 10 minutes for full retrain
+        )
+
+        if result.returncode == 0:
+            logger.info("Auto-retrain completed successfully.")
+        else:
+            logger.error(
+                f"Auto-retrain script exited with code {result.returncode}. "
+                f"Check {LOG_FILE} for details."
+            )
+            logger.error(f"stderr: {result.stderr[-500:] if result.stderr else '(none)'}")
+
+    except subprocess.TimeoutExpired:
+        logger.error("Auto-retrain timed out after 10 minutes. Check the retrain log manually.")
+    except Exception as e:
+        logger.error(f"Failed to trigger auto-retrain: {e}")
+
 
 if __name__ == "__main__":
     monitor_drift()
